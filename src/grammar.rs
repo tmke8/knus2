@@ -1034,11 +1034,11 @@ mod test {
             "labels": [],
             "related": [{
                 "message":
-                    "found `x`, expected `\"`, `\\`, `b`, `f`, `n`, `r`, `s`, `t` or `u`",
+                    "found `x`, expected `\"`, `\\`, `b`, `f`, `n`, `r`, `s`, `t`, `u` or newline",
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
-                    {"label": "invalid escape char",
+                    {"label": "unexpected token",
                     "span": {"offset": 4, "length": 1}}
                 ],
                 "related": []
@@ -1063,11 +1063,11 @@ mod test {
                 "related": []
             }, {
                 "message":
-                    "found `!`, expected `\"`, `\\`, `b`, `f`, `n`, `r`, `s`, `t` or `u`",
+                    "found `!`, expected `\"`, `\\`, `b`, `f`, `n`, `r`, `s`, `t`, `u` or newline",
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
-                    {"label": "invalid escape char",
+                    {"label": "unexpected token",
                     "span": {"offset": 15, "length": 1}}
                 ],
                 "related": []
@@ -1793,7 +1793,7 @@ mod test {
             "severity": "error",
             "labels": [],
             "related": [{
-                "message": "found `=`, expected `\"`, `#`, `(`, `+`, `-`, `0`, `;`, `\\`, `{`, `#-inf`, `#false`, `#inf`, `#nan`, `#null`, `#true`, letter, newline, whitespace or end of input",
+                "message": "found `=`, expected `\"`, `#`, `(`, `+`, `-`, `.`, `0`, `;`, `\\`, `{`, `#-inf`, `#false`, `#inf`, `#nan`, `#null`, `#true`, letter, newline, whitespace or end of input",
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
