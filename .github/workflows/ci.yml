@@ -33,7 +33,11 @@ jobs:
       - if: runner.os == 'macOS'
         run: brew install lld
 
-      - run: just test
+      # Skip doctests on macOS due to rust-lld linker issues (see above)
+      - if: runner.os == 'macOS'
+        run: cargo test --workspace --lib --tests
+      - if: runner.os != 'macOS'
+        run: just test
 
   check_wasm_build:
     name: Check WASM Build
