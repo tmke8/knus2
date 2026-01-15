@@ -6,6 +6,7 @@
 //! as a separate kind of span. See [`traits::DecodeSpan`].
 use crate::decode::Context;
 
+use chumsky::span::SimpleSpan;
 /// Reexport of [miette::SourceSpan] trait that we use for parsing
 pub use miette::SourceSpan as ErrorSpan;
 
@@ -33,7 +34,7 @@ impl From<Span> for ErrorSpan {
     }
 }
 
-impl chumsky::Span for Span {
+/* impl chumsky::Span for Span {
     type Context = ();
     type Offset = usize;
     fn new(_context: (), range: std::ops::Range<usize>) -> Self {
@@ -45,6 +46,12 @@ impl chumsky::Span for Span {
     }
     fn end(&self) -> usize {
         self.1
+    }
+} */
+
+impl From<SimpleSpan> for Span {
+    fn from(value: SimpleSpan) -> Self {
+        Span(value.start, value.end)
     }
 }
 
@@ -69,17 +76,20 @@ impl Span {
         self.1.saturating_sub(self.0)
     }
 
-    /// Creates a stream of characters with spans from the given text.
-    pub fn stream(text: &str) -> Stream<'_, Self>
-    where
-        Self: chumsky::Span,
-    {
+    /* /// Creates a stream of characters with spans from the given text.
+    pub fn stream<'src>(text: &'src str) -> chumsky::input::MappedInput<char, SimpleSpan, &'src str, _> {
         let eoi = text.len();
-        chumsky::Stream::from_iter(
-            Span(eoi, eoi),
-            Map(text.chars(), OffsetTracker { offset: 0 }),
+        use chumsky::input::Input;
+        let mut offset = OffsetTracker { offset: 0 };
+        text.map(
+            SimpleSpan {
+                start: eoi,
+                end: eoi,
+                context: (),
+            },
+            |c: char| (c, offset.next_simple_span(c)),
         )
-    }
+    } */
 
     #[cfg(feature = "line-numbers")]
     /// Converts the span's byte offsets to zero-based line/column pairs
@@ -134,14 +144,23 @@ impl OffsetTracker {
         self.offset += c.len_utf8();
         Span(offset, self.offset)
     }
+    fn next_simple_span(&mut self, c: char) -> SimpleSpan {
+        let offset = self.offset;
+        self.offset += c.len_utf8();
+        SimpleSpan {
+            start: offset,
+            end: self.offset,
+            context: (),
+        }
+    }
 }
 
-pub struct Map<I: Iterator<Item = char>>(pub(crate) I, pub(crate) OffsetTracker);
+// pub struct Map<I: Iterator<Item = char>>(pub(crate) I, pub(crate) OffsetTracker);
 
-/// Short-hand for chumsky's `Stream` type with our spans and chars.
-pub type Stream<'a, S> = chumsky::Stream<'a, char, S, Map<std::str::Chars<'a>>>;
+/* pub type Stream<'src> =
+    chumsky::input::MappedInput<char, SimpleSpan, &'src str, Fn(char)>; */
 
-impl<I> Iterator for Map<I>
+/* impl<I> Iterator for Map<I>
 where
     I: Iterator<Item = char>,
 {
@@ -149,7 +168,7 @@ where
     fn next(&mut self) -> Option<(char, Span)> {
         self.0.next().map(|c| (c, self.1.next_span(c)))
     }
-}
+} */
 
 /// The trait that decodes span into the final structure
 pub trait DecodeSpan: Sized {
