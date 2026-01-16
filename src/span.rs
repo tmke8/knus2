@@ -34,7 +34,7 @@ impl From<Span> for ErrorSpan {
     }
 }
 
-/* impl chumsky::Span for Span {
+impl chumsky::span::Span for Span {
     type Context = ();
     type Offset = usize;
     fn new(_context: (), range: std::ops::Range<usize>) -> Self {
@@ -47,7 +47,7 @@ impl From<Span> for ErrorSpan {
     fn end(&self) -> usize {
         self.1
     }
-} */
+}
 
 impl From<SimpleSpan> for Span {
     fn from(value: SimpleSpan) -> Self {
@@ -75,21 +75,6 @@ impl Span {
     pub fn length(&self) -> usize {
         self.1.saturating_sub(self.0)
     }
-
-    /* /// Creates a stream of characters with spans from the given text.
-    pub fn stream<'src>(text: &'src str) -> chumsky::input::MappedInput<char, SimpleSpan, &'src str, _> {
-        let eoi = text.len();
-        use chumsky::input::Input;
-        let mut offset = OffsetTracker { offset: 0 };
-        text.map(
-            SimpleSpan {
-                start: eoi,
-                end: eoi,
-                context: (),
-            },
-            |c: char| (c, offset.next_simple_span(c)),
-        )
-    } */
 
     #[cfg(feature = "line-numbers")]
     /// Converts the span's byte offsets to zero-based line/column pairs

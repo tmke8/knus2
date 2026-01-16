@@ -7,33 +7,6 @@ use crate::ast::{Document, SpannedName, SpannedNode};
 use crate::errors::{ParseError, TokenFormat};
 use crate::span::{Span, Spanned};
 
-// use chumsky::combinator::{Map, Then};
-
-// type MapChar<O, U> = fn(_: (O, U)) -> Vec<char>;
-
-// trait ChainChar<I: Clone, O> {
-//     type Error;
-//     fn chain_c<U, P>(self, other: P) -> Map<Then<Self, P>, MapChar<O, U>, (O, U)>
-//     where
-//         Self: Sized,
-//         U: Chain<char>,
-//         O: Chain<char>,
-//         P: Parser<I, U, Error = Self::Error>;
-// }
-
-// impl<'src, I: Clone, O, R: Parser<'src, I, O>> ChainChar<I, O> for R {
-//     type Error = <R as Parser<I, O>>::Error;
-//     fn chain_c<U, P>(self, other: P) -> Map<Then<Self, P>, MapChar<O, U>, (O, U)>
-//     where
-//         Self: Sized,
-//         U: Chain<char>,
-//         O: Chain<char>,
-//         P: Parser<'src, I, U, Error = Self::Error>,
-//     {
-//         Parser::chain(self, other)
-//     }
-// }
-
 fn begin_comment<'src>(
     which: char,
 ) -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
@@ -173,19 +146,20 @@ fn ml_comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>
         .delimited_by(begin_comment('*'), just("*/"))
     })
     .map_err_with_state(|e, span, _state| {
+        let span: Span = span.into();
         if matches!(
             &e,
             ParseError::Unexpected {
                 found: TokenFormat::Eoi,
                 ..
             }
-        ) && span.into_range().len() > 2
+        ) && span.length() > 2
         {
             e.merge(ParseError::Unclosed {
                 label: "comment",
-                opened_at: Span::from(span).at_start(2),
+                opened_at: span.at_start(2),
                 opened: "/*".into(),
-                expected_at: Span::from(span).at_end(),
+                expected_at: span.at_end(),
                 expected: "*/".into(),
                 found: None.into(),
             })
@@ -211,7 +185,7 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
                 .and_is(just('"').then(matching_hashes).not())
                 .repeated()
                 .collect::<String>()
-                .then(just('"').then(matching_hashes.ignored()))
+                .then(just('"').ignore_then(matching_hashes.ignored()))
                 // .map_with(|x, e| {
                 //     let hash_num = *e.ctx();
                 //     // *e.state() = hash_num;
@@ -438,22 +412,22 @@ fn ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError
 fn keyword<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
     choice((
         just("#null")
-            .map_err(|e| ParseError::with_expected_token(e, "#null"))
+            .map_err(|e: ParseError| e.with_expected_token("#null"))
             .to(Literal::Null),
         just("#true")
-            .map_err(|e| ParseError::with_expected_token(e, "#true"))
+            .map_err(|e: ParseError| e.with_expected_token("#true"))
             .to(Literal::Bool(true)),
         just("#false")
-            .map_err(|e| ParseError::with_expected_token(e, "#false"))
+            .map_err(|e: ParseError| e.with_expected_token("#false"))
             .to(Literal::Bool(false)),
         just("#nan")
-            .map_err(|e| ParseError::with_expected_token(e, "#nan"))
+            .map_err(|e: ParseError| e.with_expected_token("#nan"))
             .to(Literal::Nan),
         just("#inf")
-            .map_err(|e| ParseError::with_expected_token(e, "#inf"))
+            .map_err(|e: ParseError| e.with_expected_token("#inf"))
             .to(Literal::Inf),
         just("#-inf")
-            .map_err(|e| ParseError::with_expected_token(e, "#-inf"))
+            .map_err(|e: ParseError| e.with_expected_token("#-inf"))
             .to(Literal::NegInf),
     ))
 }

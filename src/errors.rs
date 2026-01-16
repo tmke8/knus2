@@ -364,17 +364,6 @@ impl ParseError {
             },
         }
     }
-    fn expected_input_found<Iter>(span: Span, expected: Iter, found: Option<char>) -> Self
-    where
-        Iter: IntoIterator<Item = Option<char>>,
-    {
-        ParseError::Unexpected {
-            label: None,
-            span,
-            found: found.into(),
-            expected: expected.into_iter().map(Into::into).collect(),
-        }
-    }
     fn with_label(mut self, new_label: &'static str) -> Self {
         use ParseError::*;
         match self {
