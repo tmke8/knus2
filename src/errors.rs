@@ -1,3 +1,4 @@
+#![allow(unused)]
 //! Error types for the knus library
 //!
 //! You only need [`Error`](enum@Error) exposed as `knus::Error` unless you

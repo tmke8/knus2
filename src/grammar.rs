@@ -208,7 +208,7 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
         .ignore_with_ctx(
             // any::<_, extra::Full<ParseError, SimpleState<usize>, _>>()
             any()
-                .and_is(just('"').then(matching_hashes.not()))
+                .and_is(just('"').then(matching_hashes).not())
                 .repeated()
                 .collect::<String>()
                 .then(just('"').then(matching_hashes.ignored()))
