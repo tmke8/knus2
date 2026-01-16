@@ -5,7 +5,7 @@ use chumsky::prelude::*;
 use crate::ast::{Decimal, Integer, Literal, Node, Radix, TypeName, Value};
 use crate::ast::{Document, SpannedName, SpannedNode};
 use crate::errors::{ParseError, TokenFormat};
-use crate::span::Spanned;
+use crate::span::{Span, Spanned};
 
 use chumsky::combinator::{Map, Then};
 
@@ -42,7 +42,7 @@ fn begin_comment<'src>(
         .ignore_then(just(which).ignored())
 }
 
-fn newline<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> {
+fn newline<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
     just('\r')
         .or_not()
         .ignore_then(just('\n'))
@@ -68,7 +68,7 @@ fn ws_char<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> +
         .ignored()
 }
 
-fn id_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> {
+fn id_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
     any::<_, extra::Err<ParseError>>()
         .filter(|c| {
             !matches!(c,
@@ -85,7 +85,7 @@ fn id_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>>
         .map_err(|e| e.with_expected_kind("letter"))
 }
 
-fn id_sans_dig<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> {
+fn id_sans_dig<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
     any::<_, extra::Err<ParseError>>()
         .filter(|c| {
             !matches!(c,
@@ -103,7 +103,7 @@ fn id_sans_dig<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseErr
         .map_err(|e| e.with_expected_kind("letter"))
 }
 
-fn id_sans_dig_point<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> {
+fn id_sans_dig_point<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
     any::<_, extra::Err<ParseError>>()
         .filter(|c| {
             !matches!(c,
@@ -182,9 +182,9 @@ fn ml_comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>
         {
             e.merge(ParseError::Unclosed {
                 label: "comment",
-                opened_at: span.at_start(2),
+                opened_at: Span::from(span).at_start(2),
                 opened: "/*".into(),
-                expected_at: span.to_end().into(),
+                expected_at: Span::from(span).at_end(),
                 expected: "*/".into(),
                 found: None.into(),
             })
@@ -199,19 +199,31 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
     just('#')
         .repeated()
         .at_least(1)
-        .collect::<Vec<char>>()
-        .map(|v| v.len())
+        .count()
         .then_ignore(just('"'))
-        .then_with(|sharp_num| {
+        .ignore_with_ctx(
             any()
                 .and_is(
                     just('"')
-                        .then(just('#').repeated().exactly(sharp_num))
+                        .then(
+                            just('#')
+                                .repeated()
+                                .configure(|cfg, sharp_num| cfg.exactly(*sharp_num)),
+                        )
                         .not(),
                 )
                 .repeated()
-                .then(just('"').ignore_then(just('#').repeated().exactly(sharp_num).ignored()))
-                .map_err_with_state(move |e: ParseError, span, _state| {
+                .collect::<String>()
+                .then(
+                    just('"').then(
+                        just('#')
+                            .repeated()
+                            .configure(|cfg, sharp_num| cfg.exactly(*sharp_num))
+                            .ignored(),
+                    ),
+                )
+                .map_err_with_state(move |e: ParseError, span: SimpleSpan, _state| {
+                    let sharp_num = 0usize;
                     if matches!(
                         &e,
                         ParseError::Unexpected {
@@ -221,18 +233,18 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
                     ) {
                         e.merge(ParseError::Unclosed {
                             label: "raw string",
-                            opened_at: span.before_start(sharp_num + 2),
+                            opened_at: Span::from(span).before_start(sharp_num + 2),
                             opened: TokenFormat::OpenRaw(sharp_num),
-                            expected_at: span.to_end().into(),
+                            expected_at: Span::from(span).at_end(),
                             expected: TokenFormat::CloseRaw(sharp_num),
                             found: None.into(),
                         })
                     } else {
                         e
                     }
-                })
-        })
-        .map(|(text, ())| text.into_iter().collect::<String>().into())
+                }),
+        )
+        .map(|(text, (_c, ()))| text.into())
 }
 
 fn string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> {
@@ -331,9 +343,9 @@ fn escaped_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<P
             ) {
                 e.merge(ParseError::Unclosed {
                     label: "string",
-                    opened_at: span.before_start(1),
+                    opened_at: Span::from(span).before_start(1),
                     opened: '"'.into(),
-                    expected_at: span.to_end().into(),
+                    expected_at: Span::from(span).at_end(),
                     expected: '"'.into(),
                     found: None.into(),
                 })
@@ -549,6 +561,7 @@ fn node_terminator<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseE
     choice((newline(), comment(), just(';').ignored(), end()))
 }
 
+#[derive(Clone)]
 enum PropOrArg {
     Prop(SpannedName, Value),
     Arg(Value),
@@ -688,9 +701,9 @@ fn nodes<'src>() -> impl Parser<'src, &'src str, Vec<SpannedNode>, extra::Err<Pa
                     e.merge(ParseError::Unclosed {
                         label: "curly braces",
                         // we know it's `{` at the start of the span
-                        opened_at: span.before_start(1),
+                        opened_at: Span::from(span).before_start(1),
                         opened: '{'.into(),
-                        expected_at: span.to_end().into(),
+                        expected_at: Span::from(span).at_end(),
                         expected: '}'.into(),
                         found: None.into(),
                     })
@@ -708,7 +721,8 @@ fn nodes<'src>() -> impl Parser<'src, &'src str, Vec<SpannedNode>, extra::Err<Pa
                     .repeated()
                     .at_least(1)
                     .ignore_then(prop_or_arg())
-                    .repeated(),
+                    .repeated()
+                    .collect::<Vec<PropOrArg>>(),
             )
             .then(
                 node_space()
