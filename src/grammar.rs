@@ -192,7 +192,7 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
                 //     x.0
                 // })
                 .map_err_with_state(move |e: ParseError, span: SimpleSpan, _state| {
-                    let sharp_num = 0;
+                    let hash_num = 1;
                     if matches!(
                         &e,
                         ParseError::Unexpected {
@@ -202,10 +202,10 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
                     ) {
                         e.merge(ParseError::Unclosed {
                             label: "raw string",
-                            opened_at: Span::from(span).before_start(sharp_num + 2),
-                            opened: TokenFormat::OpenRaw(sharp_num),
+                            opened_at: Span::from(span).before_start(hash_num + 2),
+                            opened: TokenFormat::OpenRaw(hash_num),
                             expected_at: Span::from(span).at_end(),
-                            expected: TokenFormat::CloseRaw(sharp_num),
+                            expected: TokenFormat::CloseRaw(hash_num),
                             found: None.into(),
                         })
                     } else {
@@ -1054,7 +1054,7 @@ mod test {
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
-                    {"label": "unexpected token",
+                    {"label": "unexpected character",
                     "span": {"offset": 7, "length": 1}}
                 ],
                 "related": []
@@ -1073,7 +1073,7 @@ mod test {
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
-                    {"label": "unexpected token",
+                    {"label": "invalid escape char",
                     "span": {"offset": 4, "length": 1}}
                 ],
                 "related": []
@@ -1235,8 +1235,7 @@ mod test {
     fn exclude_keywords() {
         parse(nodes(), "item #true").unwrap();
 
-        // would be nice for this to error with "unexpected keyword #true", but
-        // right now its reading it as an improperly formatted raw string.
+        // Keywords like #true cannot be used as node names
         err_eq!(
             parse(nodes(), "#true \"item\""),
             r#"{
@@ -1245,12 +1244,12 @@ mod test {
             "labels": [],
             "related": [{
                 "message":
-                    "found `t`, expected `\"` or `#`",
+                    "found keyword, expected identifier",
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
-                    {"label": "unexpected token",
-                    "span": {"offset": 1, "length": 1}}
+                    {"label": "unexpected keyword",
+                    "span": {"offset": 0, "length": 5}}
                 ],
                 "related": []
             }]
