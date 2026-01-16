@@ -132,44 +132,6 @@ fn line_column_of_end(text: &str) -> (usize, usize) {
     (line, column)
 }
 
-/// Helper struct for computing spans
-#[derive(Debug)]
-pub struct OffsetTracker {
-    offset: usize,
-}
-
-impl OffsetTracker {
-    fn next_span(&mut self, c: char) -> Span {
-        let offset = self.offset;
-        self.offset += c.len_utf8();
-        Span(offset, self.offset)
-    }
-    fn next_simple_span(&mut self, c: char) -> SimpleSpan {
-        let offset = self.offset;
-        self.offset += c.len_utf8();
-        SimpleSpan {
-            start: offset,
-            end: self.offset,
-            context: (),
-        }
-    }
-}
-
-// pub struct Map<I: Iterator<Item = char>>(pub(crate) I, pub(crate) OffsetTracker);
-
-/* pub type Stream<'src> =
-    chumsky::input::MappedInput<char, SimpleSpan, &'src str, Fn(char)>; */
-
-/* impl<I> Iterator for Map<I>
-where
-    I: Iterator<Item = char>,
-{
-    type Item = (char, Span);
-    fn next(&mut self) -> Option<(char, Span)> {
-        self.0.next().map(|c| (c, self.1.next_span(c)))
-    }
-} */
-
 /// The trait that decodes span into the final structure
 pub trait DecodeSpan: Sized {
     /// Decode span

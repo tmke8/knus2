@@ -6,11 +6,10 @@ use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fmt::{self, Write};
 
-use chumsky::error::Rich;
+use chumsky::DefaultExpected;
 use chumsky::label::LabelError;
 use chumsky::span::SimpleSpan;
 use chumsky::util::Maybe;
-use chumsky::DefaultExpected;
 use miette::{Diagnostic, NamedSource};
 use thiserror::Error;
 
@@ -227,6 +226,17 @@ impl From<&'static str> for TokenFormat {
     }
 }
 
+impl TryFrom<DefaultExpected<'_, char>> for TokenFormat {
+    type Error = ();
+    fn try_from(e: DefaultExpected<'_, char>) -> Result<TokenFormat, ()> {
+        match e {
+            DefaultExpected::Token(c) => Ok(TokenFormat::Char(*c)),
+            DefaultExpected::EndOfInput => Ok(TokenFormat::Eoi),
+            _ => Err(()),
+        }
+    }
+}
+
 impl fmt::Display for TokenFormat {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use TokenFormat::*;
@@ -280,22 +290,6 @@ impl fmt::Display for FormatUnexpected<'_> {
 }
 
 impl ParseError {
-    /* pub(crate) fn with_expected_token(err: Rich<char>, token: &'static str) -> Self {
-        ParseError::Unexpected {
-            label: None,
-            span: (*err.span()).into(),
-            found: err.found().copied().into(),
-            expected: [TokenFormat::Token(token)].into_iter().collect(),
-        }
-    }
-    pub(crate) fn with_expected_kind(err: Rich<char>,  token: &'static str) -> Self {
-        ParseError::Unexpected {
-            label: None,
-            span: (*err.span()).into(),
-            found: err.found().copied().into(),
-            expected: [TokenFormat::Kind(token)].into_iter().collect(),
-        }
-    } */
     pub(crate) fn with_expected_token(mut self, token: &'static str) -> Self {
         use ParseError::*;
         if let Unexpected { expected, .. } = &mut self {
@@ -369,42 +363,6 @@ impl ParseError {
             },
         }
     }
-}
-
-impl<'src> LabelError<'src, &'src str, DefaultExpected<'src, char>> for ParseError {
-    fn expected_found<E: IntoIterator<Item = DefaultExpected<'src, char>>>(
-        expected: E,
-        found: Option<Maybe<char, &'src char>>,
-        span: SimpleSpan,
-    ) -> Self {
-        ParseError::Unexpected {
-            label: None,
-            span: span.into(),
-            found: found.map(|c| *c).into(),
-            expected: expected.into_iter().map(|e| e).collect(),
-        }
-    }
-}
-
-impl<'src> chumsky::error::Error<'src, &'src str> for ParseError {
-    fn merge(mut self, other: Self) -> Self {
-        use ParseError::*;
-        match (&mut self, other) {
-            (Unclosed { .. }, _) => self,
-            (_, other @ Unclosed { .. }) => other,
-            (Unexpected { expected: dest, .. }, Unexpected { expected, .. }) => {
-                dest.extend(expected);
-                self
-            }
-            (Message { .. }, _) => self,
-            (_, other @ Message { .. }) => other,
-            (_, other) => todo!("{} -> {}", self, other),
-        }
-    }
-}
-impl ParseError {
-    /* type Span = Span;
-    type Label = &'static str; */
     fn expected_input_found<Iter>(span: Span, expected: Iter, found: Option<char>) -> Self
     where
         Iter: IntoIterator<Item = Option<char>>,
@@ -440,6 +398,41 @@ impl ParseError {
             expected_at: span,
             expected: expected.into(),
             found: found.into(),
+        }
+    }
+}
+
+impl<'src> LabelError<'src, &'src str, DefaultExpected<'src, char>> for ParseError {
+    fn expected_found<E: IntoIterator<Item = DefaultExpected<'src, char>>>(
+        expected: E,
+        found: Option<Maybe<char, &'src char>>,
+        span: SimpleSpan,
+    ) -> Self {
+        ParseError::Unexpected {
+            label: None,
+            span: span.into(),
+            found: found.map(|c| *c).into(),
+            expected: expected
+                .into_iter()
+                .filter_map(|e| e.try_into().ok())
+                .collect(),
+        }
+    }
+}
+
+impl<'src> chumsky::error::Error<'src, &'src str> for ParseError {
+    fn merge(mut self, other: Self) -> Self {
+        use ParseError::*;
+        match (&mut self, other) {
+            (Unclosed { .. }, _) => self,
+            (_, other @ Unclosed { .. }) => other,
+            (Unexpected { expected: dest, .. }, Unexpected { expected, .. }) => {
+                dest.extend(expected);
+                self
+            }
+            (Message { .. }, _) => self,
+            (_, other @ Message { .. }) => other,
+            (_, other) => todo!("{} -> {}", self, other),
         }
     }
 }

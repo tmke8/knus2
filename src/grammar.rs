@@ -7,32 +7,32 @@ use crate::ast::{Document, SpannedName, SpannedNode};
 use crate::errors::{ParseError, TokenFormat};
 use crate::span::{Span, Spanned};
 
-use chumsky::combinator::{Map, Then};
+// use chumsky::combinator::{Map, Then};
 
-type MapChar<O, U> = fn(_: (O, U)) -> Vec<char>;
+// type MapChar<O, U> = fn(_: (O, U)) -> Vec<char>;
 
-/* trait ChainChar<I: Clone, O> {
-    type Error;
-    fn chain_c<U, P>(self, other: P) -> Map<Then<Self, P>, MapChar<O, U>, (O, U)>
-    where
-        Self: Sized,
-        U: Chain<char>,
-        O: Chain<char>,
-        P: Parser<I, U, Error = Self::Error>;
-}
+// trait ChainChar<I: Clone, O> {
+//     type Error;
+//     fn chain_c<U, P>(self, other: P) -> Map<Then<Self, P>, MapChar<O, U>, (O, U)>
+//     where
+//         Self: Sized,
+//         U: Chain<char>,
+//         O: Chain<char>,
+//         P: Parser<I, U, Error = Self::Error>;
+// }
 
-impl<'src, I: Clone, O, R: Parser<'src, I, O>> ChainChar<I, O> for R {
-    type Error = <R as Parser<I, O>>::Error;
-    fn chain_c<U, P>(self, other: P) -> Map<Then<Self, P>, MapChar<O, U>, (O, U)>
-    where
-        Self: Sized,
-        U: Chain<char>,
-        O: Chain<char>,
-        P: Parser<'src, I, U, Error = Self::Error>,
-    {
-        Parser::to_slice(self, other)
-    }
-} */
+// impl<'src, I: Clone, O, R: Parser<'src, I, O>> ChainChar<I, O> for R {
+//     type Error = <R as Parser<I, O>>::Error;
+//     fn chain_c<U, P>(self, other: P) -> Map<Then<Self, P>, MapChar<O, U>, (O, U)>
+//     where
+//         Self: Sized,
+//         U: Chain<char>,
+//         O: Chain<char>,
+//         P: Parser<'src, I, U, Error = Self::Error>,
+//     {
+//         Parser::chain(self, other)
+//     }
+// }
 
 fn begin_comment<'src>(
     which: char,
@@ -121,7 +121,8 @@ fn id_sans_dig_point<'src>() -> impl Parser<'src, &'src str, char, extra::Err<Pa
         .map_err(|e| e.with_expected_kind("letter"))
 }
 
-fn id_sans_sign_dig_point<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> {
+fn id_sans_sign_dig_point<'src>()
+-> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
     any::<_, extra::Err<ParseError>>()
         .filter(|c| {
             !matches!(c,
@@ -139,7 +140,7 @@ fn id_sans_sign_dig_point<'src>() -> impl Parser<'src, &'src str, char, extra::E
         .map_err(|e| e.with_expected_kind("letter"))
 }
 
-fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> {
+fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
     ws_char()
         .repeated()
         .at_least(1)
@@ -148,7 +149,7 @@ fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> {
         .map_err(|e| e.with_expected_kind("whitespace"))
 }
 
-fn comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> {
+fn comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
     begin_comment('/')
         .then(
             any()
@@ -160,7 +161,7 @@ fn comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> {
         .ignored()
 }
 
-fn ml_comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> {
+fn ml_comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
     recursive::<_, _, _, _, _>(|comment| {
         choice((
             comment,
@@ -195,35 +196,29 @@ fn ml_comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>
     })
 }
 
-fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> {
+fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
+    let matching_hashes = just('#')
+        .repeated()
+        .configure(|cfg, hash_num| cfg.exactly(*hash_num));
     just('#')
         .repeated()
         .at_least(1)
         .count()
         .then_ignore(just('"'))
         .ignore_with_ctx(
+            // any::<_, extra::Full<ParseError, SimpleState<usize>, _>>()
             any()
-                .and_is(
-                    just('"')
-                        .then(
-                            just('#')
-                                .repeated()
-                                .configure(|cfg, sharp_num| cfg.exactly(*sharp_num)),
-                        )
-                        .not(),
-                )
+                .and_is(just('"').then(matching_hashes.not()))
                 .repeated()
                 .collect::<String>()
-                .then(
-                    just('"').then(
-                        just('#')
-                            .repeated()
-                            .configure(|cfg, sharp_num| cfg.exactly(*sharp_num))
-                            .ignored(),
-                    ),
-                )
+                .then(just('"').then(matching_hashes.ignored()))
+                // .map_with(|x, e| {
+                //     let hash_num = *e.ctx();
+                //     // *e.state() = hash_num;
+                //     x.0
+                // })
                 .map_err_with_state(move |e: ParseError, span: SimpleSpan, _state| {
-                    let sharp_num = 0usize;
+                    let sharp_num = 0;
                     if matches!(
                         &e,
                         ParseError::Unexpected {
@@ -243,11 +238,12 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
                         e
                     }
                 }),
+            // .with_state::<()>(()),
         )
-        .map(|(text, (_c, ()))| text.into())
+        .map(|text| text.0.into())
 }
 
-fn string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> {
+fn string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
     raw_string().or(escaped_string())
 }
 
@@ -255,7 +251,7 @@ fn expected_kind(s: &'static str) -> BTreeSet<TokenFormat> {
     [TokenFormat::Kind(s)].into_iter().collect()
 }
 
-fn esc_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> {
+fn esc_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
     /* select! {
         '"' => '"',
         '\\' => '\\',
@@ -319,7 +315,8 @@ fn esc_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>
         ))
 }
 
-fn escaped_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> {
+fn escaped_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone
+{
     just('"').ignore_then(
         choice((
             any::<_, extra::Err<ParseError>>().filter(|&c| c != '"' && c != '\\'),
@@ -356,58 +353,62 @@ fn escaped_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<P
     )
 }
 
-fn bare_ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> {
+fn bare_ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
     let sign = just('+').or(just('-'));
     choice((
         // unambiguous-ident
-        id_sans_sign_dig_point().chain(id_char().repeated()),
+        id_sans_sign_dig_point()
+            .then(id_char().repeated())
+            .to_slice(),
         // signed-ident
-        sign.chain(id_sans_dig_point().chain(id_char().repeated()).or_not()),
+        sign.then(id_sans_dig_point().then(id_char().repeated()).or_not())
+            .to_slice(),
         // dotted-ident
         sign.or_not()
-            .chain(just('.'))
-            .chain(id_sans_dig().chain(id_char().repeated()).or_not()),
+            .then(just('.'))
+            .then(id_sans_dig().then(id_char().repeated()).or_not())
+            .to_slice(),
     ))
-    .map(|v| v.into_iter().collect())
+    .map(|v: &str| v.to_owned())
     .try_map(|s: String, span| match &s[..] {
         "true" | "false" | "null" | "nan" | "inf" | "-inf" => Err(ParseError::Message {
             label: Some("illegal identifier"),
-            span,
+            span: span.into(),
             message: format!("`{s}` is not allowed as a bare string"),
         }),
         "#true" => Err(ParseError::Unexpected {
             label: Some("keyword"),
-            span,
+            span: span.into(),
             found: TokenFormat::Token("#true"),
             expected: expected_kind("identifier"),
         }),
         "#false" => Err(ParseError::Unexpected {
             label: Some("keyword"),
-            span,
+            span: span.into(),
             found: TokenFormat::Token("#false"),
             expected: expected_kind("identifier"),
         }),
         "#null" => Err(ParseError::Unexpected {
             label: Some("keyword"),
-            span,
+            span: span.into(),
             found: TokenFormat::Token("#null"),
             expected: expected_kind("identifier"),
         }),
         "#nan" => Err(ParseError::Unexpected {
             label: Some("keyword"),
-            span,
+            span: span.into(),
             found: TokenFormat::Token("#nan"),
             expected: expected_kind("identifier"),
         }),
         "#inf" => Err(ParseError::Unexpected {
             label: Some("keyword"),
-            span,
+            span: span.into(),
             found: TokenFormat::Token("#inf"),
             expected: expected_kind("identifier"),
         }),
         "#-inf" => Err(ParseError::Unexpected {
             label: Some("keyword"),
-            span,
+            span: span.into(),
             found: TokenFormat::Token("#-inf"),
             expected: expected_kind("identifier"),
         }),
@@ -415,7 +416,7 @@ fn bare_ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
     })
 }
 
-fn ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> {
+fn ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
     choice((
         // match -123 so `-` will not be treated as an ident by backtracking
         number().map(Err),
@@ -434,7 +435,7 @@ fn ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError
     })
 }
 
-fn keyword<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> {
+fn keyword<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
     choice((
         just("#null")
             .map_err(|e| ParseError::with_expected_token(e, "#null"))
@@ -457,41 +458,34 @@ fn keyword<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseErro
     ))
 }
 
-fn digit<'src>(radix: u32) -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> {
+fn digit<'src>(radix: u32) -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
     any::<_, extra::Err<ParseError>>().filter(move |c: &char| c.is_digit(radix))
 }
 
-fn digits<'src>(radix: u32) -> impl Parser<'src, &'src str, Vec<char>, extra::Err<ParseError>> {
+fn digits<'src>(radix: u32) -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
     any::<_, extra::Err<ParseError>>()
         .filter(move |c: &char| c == &'_' || c.is_digit(radix))
         .repeated()
-        .collect()
 }
 
-fn decimal_number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> {
+fn decimal_number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
     just('-')
         .or(just('+'))
         .or_not()
-        .chain_c(digit(10))
-        .chain_c(digits(10))
-        .chain_c(
-            just('.')
-                .chain_c(digit(10))
-                .chain_c(digits(10))
-                .or_not()
-                .flatten(),
-        )
-        .chain_c(
+        .then(digit(10))
+        .then(digits(10))
+        .then(just('.').then(digit(10)).then(digits(10)).or_not())
+        .then(
             just('e')
                 .or(just('E'))
-                .chain_c(just('-').or(just('+')).or_not())
-                .chain_c(digits(10))
-                .or_not()
-                .flatten(),
+                .then(just('-').or(just('+')).or_not())
+                .then(digits(10))
+                .or_not(),
         )
-        .map(|v| {
-            let is_decimal = v.iter().any(|c| matches!(c, '.' | 'e' | 'E'));
-            let s: String = v.into_iter().filter(|c| c != &'_').collect();
+        .to_slice()
+        .map(|v: &str| {
+            let is_decimal = v.chars().any(|c| matches!(c, '.' | 'e' | 'E'));
+            let s: String = v.chars().filter(|c| c != &'_').collect();
             if is_decimal {
                 Literal::Decimal(Decimal(s.into()))
             } else {
@@ -500,35 +494,41 @@ fn decimal_number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<Pa
         })
 }
 
-fn radix_number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> {
+fn radix_number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
     just('-')
         .or(just('+'))
         .or_not()
         .then_ignore(just('0'))
         .then(choice((
-            just('b').ignore_then(digit(2).chain(digits(2)).map(|s| (Radix::Bin, s))),
-            just('o').ignore_then(digit(8).chain(digits(8)).map(|s| (Radix::Oct, s))),
-            just('x').ignore_then(digit(16).chain(digits(16)).map(|s| (Radix::Hex, s))),
+            just('b')
+                .ignore_then(digit(2).then(digits(2)).to_slice())
+                .map(|s| (Radix::Bin, s)),
+            just('o')
+                .ignore_then(digit(8).then(digits(8)).to_slice())
+                .map(|s| (Radix::Oct, s)),
+            just('x')
+                .ignore_then(digit(16).then(digits(16)).to_slice())
+                .map(|s| (Radix::Hex, s)),
         )))
         .map(|(sign, (radix, value))| {
             let mut s = String::with_capacity(value.len() + sign.map_or(0, |_| 1));
             if let Some(c) = sign {
                 s.push(c);
             }
-            s.extend(value.into_iter().filter(|&c| c != '_'));
+            s.extend(value.chars().filter(|&c| c != '_'));
             Literal::Int(Integer(radix, s.into()))
         })
 }
 
-fn number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> {
+fn number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
     radix_number().or(decimal_number())
 }
 
-fn literal<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> {
+fn literal<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
     choice((ident().map(Literal::String), keyword(), number()))
 }
 
-fn type_name<'src>() -> impl Parser<'src, &'src str, TypeName, extra::Err<ParseError>> {
+fn type_name<'src>() -> impl Parser<'src, &'src str, TypeName, extra::Err<ParseError>> + Clone {
     ident()
         .delimited_by(
             just('(').then(ws_char().repeated()),
@@ -537,9 +537,11 @@ fn type_name<'src>() -> impl Parser<'src, &'src str, TypeName, extra::Err<ParseE
         .map(TypeName::from_string)
 }
 
-fn spanned<'src, T, P>(p: P) -> impl Parser<'src, &'src str, Spanned<T>, extra::Err<ParseError>>
+fn spanned<'src, T, P>(
+    p: P,
+) -> impl Parser<'src, &'src str, Spanned<T>, extra::Err<ParseError>> + Clone
 where
-    P: Parser<'src, &'src str, T, extra::Err<ParseError>>,
+    P: Parser<'src, &'src str, T, extra::Err<ParseError>> + Clone,
 {
     p.map_with(|value, e| Spanned {
         span: e.span().into(),
@@ -547,17 +549,17 @@ where
     })
 }
 
-fn esc_line<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> {
+fn esc_line<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
     just('\\')
         .ignore_then(ws().repeated())
         .ignore_then(comment().or(newline()).or(end()))
 }
 
-fn node_space<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> {
+fn node_space<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
     ws().or(esc_line())
 }
 
-fn node_terminator<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> {
+fn node_terminator<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
     choice((newline(), comment(), just(';').ignored(), end()))
 }
 
@@ -568,7 +570,7 @@ enum PropOrArg {
     Ignore,
 }
 
-fn type_name_value<'src>() -> impl Parser<'src, &'src str, Value, extra::Err<ParseError>> {
+fn type_name_value<'src>() -> impl Parser<'src, &'src str, Value, extra::Err<ParseError>> + Clone {
     spanned(type_name().then_ignore(ws_char().repeated()))
         .then(spanned(literal()))
         .map(|(type_name, literal)| Value {
@@ -577,14 +579,15 @@ fn type_name_value<'src>() -> impl Parser<'src, &'src str, Value, extra::Err<Par
         })
 }
 
-fn value<'src>() -> impl Parser<'src, &'src str, Value, extra::Err<ParseError>> {
+fn value<'src>() -> impl Parser<'src, &'src str, Value, extra::Err<ParseError>> + Clone {
     type_name_value().or(spanned(literal()).map(|literal| Value {
         type_name: None,
         literal,
     }))
 }
 
-fn prop_or_arg_inner<'src>() -> impl Parser<'src, &'src str, PropOrArg, extra::Err<ParseError>> {
+fn prop_or_arg_inner<'src>()
+-> impl Parser<'src, &'src str, PropOrArg, extra::Err<ParseError>> + Clone {
     use PropOrArg::*;
     choice((
         spanned(literal())
@@ -674,7 +677,7 @@ fn prop_or_arg_inner<'src>() -> impl Parser<'src, &'src str, PropOrArg, extra::E
     ))
 }
 
-fn prop_or_arg<'src>() -> impl Parser<'src, &'src str, PropOrArg, extra::Err<ParseError>> {
+fn prop_or_arg<'src>() -> impl Parser<'src, &'src str, PropOrArg, extra::Err<ParseError>> + Clone {
     begin_comment('-')
         .ignore_then(line_space().repeated())
         .ignore_then(prop_or_arg_inner())
@@ -682,11 +685,11 @@ fn prop_or_arg<'src>() -> impl Parser<'src, &'src str, PropOrArg, extra::Err<Par
         .or(prop_or_arg_inner())
 }
 
-fn line_space<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> {
+fn line_space<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
     newline().or(ws()).or(comment())
 }
 
-fn nodes<'src>() -> impl Parser<'src, &'src str, Vec<SpannedNode>, extra::Err<ParseError>> {
+fn nodes<'src>() -> impl Parser<'src, &'src str, Vec<SpannedNode>, extra::Err<ParseError>> + Clone {
     use PropOrArg::*;
     recursive(|nodes| {
         let braced_nodes = just('{').ignore_then(nodes.then_ignore(just('}')).map_err_with_state(
