@@ -174,11 +174,16 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
     let matching_hashes = just('#')
         .repeated()
         .configure(|cfg, hash_num| cfg.exactly(*hash_num));
-    just('#')
-        .repeated()
-        .at_least(1)
-        .count()
-        .then_ignore(just('"'))
+    // Prevent matching keywords like #true, #false, etc. by checking they don't match first
+    keyword()
+        .not()
+        .ignore_then(
+            just('#')
+                .repeated()
+                .at_least(1)
+                .count()
+                .then_ignore(just('"')),
+        )
         .ignore_with_ctx(
             // any::<_, extra::Full<ParseError, SimpleState<usize>, _>>()
             any()
@@ -390,21 +395,38 @@ fn bare_ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
     })
 }
 
+/// Distinguishes types of invalid identifiers for error reporting
+#[derive(Clone)]
+enum IdentError {
+    Number,
+    Keyword,
+}
+
 fn ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
     choice((
+        // Check for keywords first - they look like identifiers but aren't valid
+        keyword().map_with(|_, e| (Err(IdentError::Keyword), e.span())),
         // match -123 so `-` will not be treated as an ident by backtracking
-        number().map(Err),
-        bare_ident().map(Ok),
-        string().map(Ok),
+        // Use map_with to capture the correct span for the number
+        number().map_with(|_, e| (Err(IdentError::Number), e.span())),
+        bare_ident().map_with(|s, e| (Ok(s), e.span())),
+        string().map_with(|s, e| (Ok(s), e.span())),
     ))
     // when backtracking is not already possible,
-    // throw error for numbers (mapped to `Result::Err`)
-    .try_map(|res, span| {
-        res.map_err(|_| ParseError::Unexpected {
-            label: Some("unexpected number"),
-            span: span.into(),
-            found: TokenFormat::Kind("number"),
-            expected: expected_kind("identifier"),
+    // throw error for numbers/keywords (mapped to `Result::Err`)
+    // Use ParseError::Message for higher merge priority
+    .try_map(|(res, match_span), _outer_span| {
+        res.map_err(|err| match err {
+            IdentError::Keyword => ParseError::Message {
+                label: Some("unexpected keyword"),
+                span: match_span.into(),
+                message: "found keyword, expected identifier".to_string(),
+            },
+            IdentError::Number => ParseError::Message {
+                label: Some("unexpected number"),
+                span: match_span.into(),
+                message: "found number, expected identifier".to_string(),
+            },
         })
     })
 }
@@ -590,13 +612,10 @@ fn prop_or_arg_inner<'src>()
                         | Literal::Inf
                         | Literal::NegInf,
                         Some(_),
-                    ) => Err(ParseError::Unexpected {
+                    ) => Err(ParseError::Message {
                         label: Some("unexpected keyword"),
                         span: name_span,
-                        found: TokenFormat::Kind("keyword"),
-                        expected: [TokenFormat::Kind("identifier"), TokenFormat::Kind("string")]
-                            .into_iter()
-                            .collect(),
+                        message: "found keyword, expected identifier or string".to_string(),
                     }),
                     (Literal::Int(_) | Literal::Decimal(_), Some(_)) => {
                         Err(ParseError::MessageWithHelp {

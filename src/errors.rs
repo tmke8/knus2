@@ -414,15 +414,20 @@ impl<'src> chumsky::error::Error<'src, &'src str> for ParseError {
     fn merge(mut self, other: Self) -> Self {
         use ParseError::*;
         match (&mut self, other) {
+            // Unclosed errors have highest priority
             (Unclosed { .. }, _) => self,
             (_, other @ Unclosed { .. }) => other,
+            // MessageWithHelp has higher priority than Message (more specific)
+            (MessageWithHelp { .. }, _) => self,
+            (_, other @ MessageWithHelp { .. }) => other,
+            // Message has second highest priority
+            (Message { .. }, _) => self,
+            (_, other @ Message { .. }) => other,
+            // Merge two Unexpected errors by combining expected sets
             (Unexpected { expected: dest, .. }, Unexpected { expected, .. }) => {
                 dest.extend(expected);
                 self
             }
-            (Message { .. }, _) => self,
-            (_, other @ Message { .. }) => other,
-            (_, other) => todo!("{} -> {}", self, other),
         }
     }
 }
