@@ -420,8 +420,13 @@ impl<'src> chumsky::error::Error<'src, &'src str> for ParseError {
                 dest.extend(expected);
                 self
             }
+            // (Unexpected { .. }, Message { .. }) => self,
+            // (Message { .. }, other @ Unexpected { .. }) => other,
+            (MessageWithHelp { .. }, _) => self,
+            (_, other @ MessageWithHelp { .. }) => other,
             (Message { .. }, _) => self,
             (_, other @ Message { .. }) => other,
+            // (Conversion { .. }, _) => self,
             (_, other) => todo!("{} -> {}", self, other),
         }
     }

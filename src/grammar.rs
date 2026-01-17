@@ -226,16 +226,6 @@ fn expected_kind(s: &'static str) -> BTreeSet<TokenFormat> {
 }
 
 fn esc_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
-    /* select! {
-        '"' => '"',
-        '\\' => '\\',
-        'b' => '\u{0008}',
-        'f' => '\u{000C}',
-        'n' => '\n',
-        'r' => '\r',
-        't' => '\t',
-        's' => ' ',
-    } */
     any::<_, extra::Err<ParseError>>()
         .try_map(|c, span| match c {
             '"' | '\\' => Ok(c),
@@ -269,23 +259,23 @@ fn esc_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>
                 .at_most(6)
                 .collect::<String>()
                 .delimited_by(just('{'), just('}'))
-                .try_map(|hex_chars, span| {
+                .validate(|hex_chars, extras, emit| {
                     let c = u32::from_str_radix(&hex_chars, 16)
                         .map_err(|e| e.to_string())
                         .and_then(|n| char::try_from(n).map_err(|e| e.to_string()))
                         .map_err(|e| ParseError::Message {
                             label: Some("invalid character code"),
-                            span: span.into(),
+                            span: extras.span().into(),
                             message: e.to_string(),
-                        })?;
-                    Ok(c)
-                })
-                .recover_with(skip_until(
-                    any::<_, extra::Err<ParseError>>().ignored(),
-                    // ['}', '"', '\\'],
-                    one_of("}\"\\").ignored(),
-                    || '\0',
-                )),
+                        });
+                    match c {
+                        Err(err) => {
+                            emit.emit(err);
+                            '\0'
+                        }
+                        Ok(c) => c,
+                    }
+                }),
         ))
 }
 
@@ -499,7 +489,7 @@ fn number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError
 }
 
 fn literal<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
-    choice((ident().map(Literal::String), keyword(), number()))
+    choice((keyword(), ident().map(Literal::String), number()))
 }
 
 fn type_name<'src>() -> impl Parser<'src, &'src str, TypeName, extra::Err<ParseError>> + Clone {
@@ -792,7 +782,7 @@ mod test {
     where
         P: Parser<'src, &'src str, T, extra::Err<ParseError>>,
     {
-        p.then_ignore(end())
+        p //.then_ignore(end())
             // .parse(Span::stream(text))
             .parse(text)
             .into_result()
