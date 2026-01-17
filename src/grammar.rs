@@ -184,7 +184,7 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
             any()
                 .and_is(just('"').then(matching_hashes).not())
                 .repeated()
-                .collect::<String>()
+                .to_slice()
                 .then(just('"').ignore_then(matching_hashes.ignored()))
                 // .map_with(|x, e| {
                 //     let hash_num = *e.ctx();
@@ -257,10 +257,10 @@ fn esc_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>
                 .repeated()
                 .at_least(1)
                 .at_most(6)
-                .collect::<String>()
+                .to_slice()
                 .delimited_by(just('{'), just('}'))
                 .validate(|hex_chars, extras, emit| {
-                    let c = u32::from_str_radix(&hex_chars, 16)
+                    let c = u32::from_str_radix(hex_chars, 16)
                         .map_err(|e| e.to_string())
                         .and_then(|n| char::try_from(n).map_err(|e| e.to_string()))
                         .map_err(|e| ParseError::Message {
