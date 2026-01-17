@@ -1,0 +1,5 @@
+- for reporting the correct number of hashes in the error, look at https://github.com/zesterer/chumsky/issues/472
+- perhaps more `try_map` uses should be replaced by `validate`
+	- related issue: https://github.com/zesterer/chumsky/issues/530
+- I still don’t understand why the first error is swallowed in the `"he\u{FFFFFF}l\!lo"` test
+	- could it be merged? it shouldn’t be, because the spans are different
