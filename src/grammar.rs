@@ -380,21 +380,49 @@ fn bare_ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
     })
 }
 
+/// Distinguishes types of invalid identifiers for error reporting
+#[derive(Clone)]
+enum IdentError {
+    Number,
+    Keyword,
+}
+
 fn ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
     choice((
+        // Check for keywords first - they look like identifiers but aren't valid
+        keyword().map_with(|_, e| (Err(IdentError::Keyword), e.span())),
         // match -123 so `-` will not be treated as an ident by backtracking
-        number().map(Err),
-        bare_ident().map(Ok),
-        string().map(Ok),
+        // Use map_with to capture the correct span for the number
+        number().map_with(|_, e| (Err(IdentError::Number), e.span())),
+        bare_ident().map_with(|s, e| (Ok(s), e.span())),
+        string().map_with(|s, e| (Ok(s), e.span())),
     ))
     // when backtracking is not already possible,
-    // throw error for numbers (mapped to `Result::Err`)
-    .try_map(|res, span| {
-        res.map_err(|_| ParseError::Unexpected {
-            label: Some("unexpected number"),
-            span: span.into(),
-            found: TokenFormat::Kind("number"),
-            expected: expected_kind("identifier"),
+    // throw error for numbers/keywords (mapped to `Result::Err`)
+    .try_map(|(res, match_span), _outer_span| {
+        res.map_err(|err| match err {
+            // IdentError::Keyword => ParseError::Unexpected {
+            //     label: Some("unexpected keyword"),
+            //     span: match_span.into(),
+            //     found: TokenFormat::Kind("keyword"),
+            //     expected: expected_kind("identifier"),
+            // },
+            // IdentError::Number => ParseError::Unexpected {
+            //     label: Some("unexpected number"),
+            //     span: match_span.into(),
+            //     found: TokenFormat::Kind("number"),
+            //     expected: expected_kind("identifier"),
+            // },
+            IdentError::Keyword => ParseError::Message {
+                label: Some("unexpected keyword"),
+                span: match_span.into(),
+                message: "found keyword, expected identifier".to_string(),
+            },
+            IdentError::Number => ParseError::Message {
+                label: Some("unexpected number"),
+                span: match_span.into(),
+                message: "found number, expected identifier".to_string(),
+            },
         })
     })
 }
@@ -1149,13 +1177,13 @@ mod test {
             "severity": "error",
             "labels": [],
             "related": [{
-                "message": "unclosed raw string `###\"`",
+                "message": "unclosed raw string `#\"`",
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
                     {"label": "opened here",
-                    "span": {"offset": 0, "length": 4}},
-                    {"label": "expected `\"###`",
+                    "span": {"offset": 1, "length": 3}},
+                    {"label": "expected `\"#`",
                     "span": {"offset": 9, "length": 0}}
                 ],
                 "related": []
@@ -1169,13 +1197,13 @@ mod test {
             "severity": "error",
             "labels": [],
             "related": [{
-                "message": "unclosed raw string `###\"`",
+                "message": "unclosed raw string `#\"`",
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
                     {"label": "opened here",
-                    "span": {"offset": 0, "length": 4}},
-                    {"label": "expected `\"###`",
+                    "span": {"offset": 1, "length": 3}},
+                    {"label": "expected `\"#`",
                     "span": {"offset": 16, "length": 0}}
                 ],
                 "related": []
@@ -1254,7 +1282,7 @@ mod test {
             "labels": [],
             "related": [{
                 "message":
-                    "found keyword, expected identifier or string",
+                    "found keyword, expected identifier",
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
