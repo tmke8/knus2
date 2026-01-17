@@ -1,3 +1,4 @@
+#![allow(unused)]
 //! Error types for the knus library
 //!
 //! You only need [`Error`](enum@Error) exposed as `knus::Error` unless you
@@ -6,6 +7,10 @@ use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fmt::{self, Write};
 
+use chumsky::DefaultExpected;
+use chumsky::label::LabelError;
+use chumsky::span::SimpleSpan;
+use chumsky::util::Maybe;
 use miette::{Diagnostic, NamedSource};
 use thiserror::Error;
 
@@ -222,6 +227,17 @@ impl From<&'static str> for TokenFormat {
     }
 }
 
+impl TryFrom<DefaultExpected<'_, char>> for TokenFormat {
+    type Error = ();
+    fn try_from(e: DefaultExpected<'_, char>) -> Result<TokenFormat, ()> {
+        match e {
+            DefaultExpected::Token(c) => Ok(TokenFormat::Char(*c)),
+            DefaultExpected::EndOfInput => Ok(TokenFormat::Eoi),
+            _ => Err(()),
+        }
+    }
+}
+
 impl fmt::Display for TokenFormat {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use TokenFormat::*;
@@ -348,23 +364,7 @@ impl ParseError {
             },
         }
     }
-}
-
-impl chumsky::Error<char> for ParseError {
-    type Span = Span;
-    type Label = &'static str;
-    fn expected_input_found<Iter>(span: Self::Span, expected: Iter, found: Option<char>) -> Self
-    where
-        Iter: IntoIterator<Item = Option<char>>,
-    {
-        ParseError::Unexpected {
-            label: None,
-            span,
-            found: found.into(),
-            expected: expected.into_iter().map(Into::into).collect(),
-        }
-    }
-    fn with_label(mut self, new_label: Self::Label) -> Self {
+    fn with_label(mut self, new_label: &'static str) -> Self {
         use ParseError::*;
         match self {
             Unexpected { ref mut label, .. } => *label = Some(new_label),
@@ -374,24 +374,10 @@ impl chumsky::Error<char> for ParseError {
         }
         self
     }
-    fn merge(mut self, other: Self) -> Self {
-        use ParseError::*;
-        match (&mut self, other) {
-            (Unclosed { .. }, _) => self,
-            (_, other @ Unclosed { .. }) => other,
-            (Unexpected { expected: dest, .. }, Unexpected { expected, .. }) => {
-                dest.extend(expected);
-                self
-            }
-            (Message { .. }, _) => self,
-            (_, other @ Message { .. }) => other,
-            (_, other) => todo!("{} -> {}", self, other),
-        }
-    }
     fn unclosed_delimiter(
-        unclosed_span: Self::Span,
+        unclosed_span: Span,
         unclosed: char,
-        span: Self::Span,
+        span: Span,
         expected: char,
         found: Option<char>,
     ) -> Self {
@@ -402,6 +388,46 @@ impl chumsky::Error<char> for ParseError {
             expected_at: span,
             expected: expected.into(),
             found: found.into(),
+        }
+    }
+}
+
+impl<'src> LabelError<'src, &'src str, DefaultExpected<'src, char>> for ParseError {
+    fn expected_found<E: IntoIterator<Item = DefaultExpected<'src, char>>>(
+        expected: E,
+        found: Option<Maybe<char, &'src char>>,
+        span: SimpleSpan,
+    ) -> Self {
+        ParseError::Unexpected {
+            label: None,
+            span: span.into(),
+            found: found.map(|c| *c).into(),
+            expected: expected
+                .into_iter()
+                .filter_map(|e| e.try_into().ok())
+                .collect(),
+        }
+    }
+}
+
+impl<'src> chumsky::error::Error<'src, &'src str> for ParseError {
+    fn merge(mut self, other: Self) -> Self {
+        use ParseError::*;
+        match (&mut self, other) {
+            (Unclosed { .. }, _) => self,
+            (_, other @ Unclosed { .. }) => other,
+            (Unexpected { expected: dest, .. }, Unexpected { expected, .. }) => {
+                dest.extend(expected);
+                self
+            }
+            // (Unexpected { .. }, Message { .. }) => self,
+            // (Message { .. }, other @ Unexpected { .. }) => other,
+            (MessageWithHelp { .. }, _) => self,
+            (_, other @ MessageWithHelp { .. }) => other,
+            (Message { .. }, _) => self,
+            (_, other @ Message { .. }) => other,
+            // (Conversion { .. }, _) => self,
+            (_, other) => todo!("{} -> {}", self, other),
         }
     }
 }
