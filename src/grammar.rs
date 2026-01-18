@@ -391,19 +391,15 @@ fn ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError
     ))
     // when backtracking is not already possible,
     // throw error for numbers (mapped to `Result::Err`)
-    .try_map(|res, span| {
-        res.map_err(|_| {
-            // ParseError::Unexpected {
-            //     label: Some("unexpected number"),
-            //     span: match_span.into(),
-            //     found: TokenFormat::Kind("number"),
-            //     expected: expected_kind("identifier"),
-            // }
-            ParseError::Message {
+    .validate(|res, extras, emit| {
+        res.unwrap_or_else(|_| {
+            emit.emit(ParseError::Unexpected {
                 label: Some("unexpected number"),
-                span: span.into(),
-                message: "found number, expected identifier".to_string(),
-            }
+                span: extras.span().into(),
+                found: TokenFormat::Kind("number"),
+                expected: expected_kind("identifier"),
+            });
+            "".into()
         })
     })
 }
@@ -498,7 +494,13 @@ fn number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError
 }
 
 fn literal<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
-    choice((keyword(), ident().map(Literal::String), number()))
+    // Check for `ident` last, because `ident` first checks for numbers,
+    // and it can confuse keywords with raw strings.
+    choice([
+        keyword().boxed(),
+        number().boxed(),
+        ident().map(Literal::String).boxed(),
+    ])
 }
 
 fn type_name<'src>() -> impl Parser<'src, &'src str, TypeName, extra::Err<ParseError>> + Clone {
