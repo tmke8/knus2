@@ -364,16 +364,6 @@ impl ParseError {
             },
         }
     }
-    fn with_label(mut self, new_label: &'static str) -> Self {
-        use ParseError::*;
-        match self {
-            Unexpected { ref mut label, .. } => *label = Some(new_label),
-            Unclosed { ref mut label, .. } => *label = new_label,
-            Message { ref mut label, .. } => *label = Some(new_label),
-            MessageWithHelp { ref mut label, .. } => *label = Some(new_label),
-        }
-        self
-    }
     fn unclosed_delimiter(
         unclosed_span: Span,
         unclosed: char,
@@ -408,6 +398,44 @@ impl<'src> LabelError<'src, &'src str, DefaultExpected<'src, char>> for ParseErr
                 .collect(),
         }
     }
+    fn label_with(&mut self, new_label: DefaultExpected<'src, char>) {
+        use ParseError::*;
+        let new_label = match new_label {
+            DefaultExpected::EndOfInput => "end of input",
+            DefaultExpected::Token(_) => "token",
+            DefaultExpected::Any => "any",
+            DefaultExpected::SomethingElse => "something else",
+            _ => "other",
+        };
+        match self {
+            Unexpected { label, .. } => *label = Some(new_label),
+            Unclosed { label, .. } => *label = new_label,
+            Message { label, .. } => *label = Some(new_label),
+            MessageWithHelp { label, .. } => *label = Some(new_label),
+        }
+    }
+    // fn merge_expected_found<E: IntoIterator<Item = L>>(
+    //     self,
+    //     expected: E,
+    //     found: Option<MaybeRef<'src, I::Token>>,
+    //     span: I::Span,
+    // ) -> Self
+    // where
+    //     Self: Error<'src, I>,
+    // {
+    //     self.merge(LabelError::expected_found(expected, found, span))
+    // }
+
+    // /// Fast path for `a = LabelError::expected_found(...)` that may incur less overhead by, for example, reusing allocations.
+    // #[inline(always)]
+    // fn replace_expected_found<E: IntoIterator<Item = L>>(
+    //     self,
+    //     expected: E,
+    //     found: Option<MaybeRef<'src, I::Token>>,
+    //     span: I::Span,
+    // ) -> Self {
+    //     LabelError::expected_found(expected, found, span)
+    // }
 }
 
 impl<'src> chumsky::error::Error<'src, &'src str> for ParseError {

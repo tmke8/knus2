@@ -218,7 +218,9 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
 }
 
 fn string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
-    raw_string().or(escaped_string())
+    // If we don't use this boxed approach with exactly this order,
+    // then secondary errors from `escaped_string` are swallowed during backtracking.
+    choice([raw_string().boxed(), escaped_string().boxed()])
 }
 
 fn expected_kind(s: &'static str) -> BTreeSet<TokenFormat> {
@@ -283,7 +285,7 @@ fn escaped_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<P
 {
     just('"').ignore_then(
         choice((
-            any::<_, extra::Err<ParseError>>().filter(|&c| c != '"' && c != '\\'),
+            none_of(['"', '\\']),
             just('\\').ignore_then(esc_char()),
             // ws-escape
             just('\\')
@@ -673,7 +675,7 @@ fn prop_or_arg<'src>() -> impl Parser<'src, &'src str, PropOrArg, extra::Err<Par
     begin_comment('-')
         .ignore_then(line_space().repeated())
         .ignore_then(prop_or_arg_inner())
-        .map(|_| PropOrArg::Ignore)
+        .to(PropOrArg::Ignore)
         .or(prop_or_arg_inner())
 }
 
@@ -1120,7 +1122,7 @@ mod test {
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
-                    {"label": "unexpected token",
+                    {"label": "invalid escape char",
                     "span": {"offset": 15, "length": 1}}
                 ],
                 "related": []
