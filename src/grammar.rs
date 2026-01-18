@@ -382,51 +382,25 @@ fn bare_ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
     })
 }
 
-/// Distinguishes types of invalid identifiers for error reporting
-#[derive(Clone)]
-enum IdentError {
-    Number,
-    Keyword,
-}
-
 fn ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
-    choice((
-        // Check for keywords first - they look like identifiers but aren't valid
-        keyword().map_with(|_, e| (Err(IdentError::Keyword), e.span())),
-        // match -123 so `-` will not be treated as an ident by backtracking
-        // Use map_with to capture the correct span for the number
-        number().map_with(|_, e| (Err(IdentError::Number), e.span())),
-        bare_ident().map_with(|s, e| (Ok(s), e.span())),
-        string().map_with(|s, e| (Ok(s), e.span())),
-    ))
-    // when backtracking is not already possible,
-    // throw error for numbers/keywords (mapped to `Result::Err`)
-    .try_map(|(res, match_span), _outer_span| {
-        res.map_err(|err| match err {
-            // IdentError::Keyword => ParseError::Unexpected {
-            //     label: Some("unexpected keyword"),
-            //     span: match_span.into(),
-            //     found: TokenFormat::Kind("keyword"),
-            //     expected: expected_kind("identifier"),
-            // },
-            // IdentError::Number => ParseError::Unexpected {
-            //     label: Some("unexpected number"),
-            //     span: match_span.into(),
-            //     found: TokenFormat::Kind("number"),
-            //     expected: expected_kind("identifier"),
-            // },
-            IdentError::Keyword => ParseError::Message {
-                label: Some("unexpected keyword"),
-                span: match_span.into(),
-                message: "found keyword, expected identifier".to_string(),
-            },
-            IdentError::Number => ParseError::Message {
-                label: Some("unexpected number"),
-                span: match_span.into(),
-                message: "found number, expected identifier".to_string(),
-            },
+    choice((number().map(Err), bare_ident().map(Ok), string().map(Ok)))
+        // when backtracking is not already possible,
+        // throw error for numbers/keywords (mapped to `Result::Err`)
+        .try_map(|res, span| {
+            res.map_err(|_| {
+                // IdentError::Number => ParseError::Unexpected {
+                //     label: Some("unexpected number"),
+                //     span: match_span.into(),
+                //     found: TokenFormat::Kind("number"),
+                //     expected: expected_kind("identifier"),
+                // },
+                ParseError::Message {
+                    label: Some("unexpected number"),
+                    span: span.into(),
+                    message: "found number, expected identifier".to_string(),
+                }
+            })
         })
-    })
 }
 
 fn keyword<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
@@ -593,7 +567,7 @@ fn prop_or_arg_inner<'src>()
                     .ignore_then(value())
                     .or_not(),
             )
-            .try_map(|(name, value), _| {
+            .validate(|(name, value), _, emit| {
                 let name_span = name.span;
                 match (name.value, value) {
                     (Literal::String(s), Some(value)) => {
@@ -601,7 +575,7 @@ fn prop_or_arg_inner<'src>()
                             span: name_span,
                             value: s,
                         };
-                        Ok(Prop(name, value))
+                        Prop(name, value)
                     }
                     (
                         Literal::Bool(_)
@@ -609,30 +583,49 @@ fn prop_or_arg_inner<'src>()
                         | Literal::Nan
                         | Literal::Inf
                         | Literal::NegInf,
-                        Some(_),
-                    ) => Err(ParseError::Unexpected {
-                        label: Some("unexpected keyword"),
-                        span: name_span,
-                        found: TokenFormat::Kind("keyword"),
-                        expected: [TokenFormat::Kind("identifier"), TokenFormat::Kind("string")]
+                        Some(value),
+                    ) => {
+                        emit.emit(ParseError::Unexpected {
+                            label: Some("unexpected keyword"),
+                            span: name_span,
+                            found: TokenFormat::Kind("keyword"),
+                            expected: [
+                                TokenFormat::Kind("identifier"),
+                                TokenFormat::Kind("string"),
+                            ]
                             .into_iter()
                             .collect(),
-                    }),
-                    (Literal::Int(_) | Literal::Decimal(_), Some(_)) => {
-                        Err(ParseError::MessageWithHelp {
+                            //) => Err(ParseError::Message {
+                            //    label: Some("unexpected keyword"),
+                            //    span: name_span,
+                            //    message: "found keyword, expected identifier or string".to_string(),
+                        });
+                        let name = Spanned {
+                            span: name_span,
+                            value: "".into(),
+                        };
+                        Prop(name, value)
+                    }
+                    (Literal::Int(_) | Literal::Decimal(_), Some(value)) => {
+                        emit.emit(ParseError::MessageWithHelp {
                             label: Some("unexpected number"),
                             span: name_span,
                             message: "numbers cannot be used as property names".into(),
                             help: "consider enclosing in double quotes \"..\"",
-                        })
+                        });
+                        let name = Spanned {
+                            span: name_span,
+                            value: "".into(),
+                        };
+                        Prop(name, value)
                     }
-                    (value, None) => Ok(Arg(Value {
+                    (value, None) => Arg(Value {
                         type_name: None,
                         literal: Spanned {
                             span: name_span,
                             value,
                         },
-                    })),
+                    }),
                 }
             }),
         spanned(bare_ident())
@@ -1264,12 +1257,12 @@ mod test {
             "labels": [],
             "related": [{
                 "message":
-                    "found keyword, expected identifier",
+                    "found `t`, expected `\"` or `#`",
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
-                    {"label": "unexpected keyword",
-                    "span": {"offset": 0, "length": 5}}
+                    {"label": "unexpected token",
+                    "span": {"offset": 1, "length": 1}}
                 ],
                 "related": []
             }]
@@ -1284,7 +1277,7 @@ mod test {
             "labels": [],
             "related": [{
                 "message":
-                    "found keyword, expected identifier",
+                    "found keyword, expected identifier or string",
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
