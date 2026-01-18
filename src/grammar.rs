@@ -383,24 +383,29 @@ fn bare_ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
 }
 
 fn ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
-    choice((number().map(Err), bare_ident().map(Ok), string().map(Ok)))
-        // when backtracking is not already possible,
-        // throw error for numbers/keywords (mapped to `Result::Err`)
-        .try_map(|res, span| {
-            res.map_err(|_| {
-                // IdentError::Number => ParseError::Unexpected {
-                //     label: Some("unexpected number"),
-                //     span: match_span.into(),
-                //     found: TokenFormat::Kind("number"),
-                //     expected: expected_kind("identifier"),
-                // },
-                ParseError::Message {
-                    label: Some("unexpected number"),
-                    span: span.into(),
-                    message: "found number, expected identifier".to_string(),
-                }
-            })
+    choice((
+        // match -123 so `-` will not be treated as an ident by backtracking
+        number().map(Err),
+        bare_ident().map(Ok),
+        string().map(Ok),
+    ))
+    // when backtracking is not already possible,
+    // throw error for numbers (mapped to `Result::Err`)
+    .try_map(|res, span| {
+        res.map_err(|_| {
+            // ParseError::Unexpected {
+            //     label: Some("unexpected number"),
+            //     span: match_span.into(),
+            //     found: TokenFormat::Kind("number"),
+            //     expected: expected_kind("identifier"),
+            // }
+            ParseError::Message {
+                label: Some("unexpected number"),
+                span: span.into(),
+                message: "found number, expected identifier".to_string(),
+            }
         })
+    })
 }
 
 fn keyword<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
@@ -595,10 +600,6 @@ fn prop_or_arg_inner<'src>()
                             ]
                             .into_iter()
                             .collect(),
-                            //) => Err(ParseError::Message {
-                            //    label: Some("unexpected keyword"),
-                            //    span: name_span,
-                            //    message: "found keyword, expected identifier or string".to_string(),
                         });
                         let name = Spanned {
                             span: name_span,
@@ -805,27 +806,23 @@ mod test {
     where
         P: Parser<'src, &'src str, T, extra::Err<ParseError>>,
     {
-        p //.then_ignore(end())
-            // .parse(Span::stream(text))
-            .parse(text)
-            .into_result()
-            .map_err(|errors| {
-                let source = text.to_string() + " ";
-                let e = Error {
-                    source_code: NamedSource::new("<test>", source),
-                    errors: errors.into_iter().map(Into::into).collect(),
-                };
-                let mut buf = String::with_capacity(512);
-                miette::GraphicalReportHandler::new()
-                    .render_report(&mut buf, &e)
-                    .unwrap();
-                println!("{}", buf);
-                buf.truncate(0);
-                miette::JSONReportHandler::new()
-                    .render_report(&mut buf, &e)
-                    .unwrap();
-                buf
-            })
+        p.parse(text).into_result().map_err(|errors| {
+            let source = text.to_string() + " ";
+            let e = Error {
+                source_code: NamedSource::new("<test>", source),
+                errors: errors.into_iter().map(Into::into).collect(),
+            };
+            let mut buf = String::with_capacity(512);
+            miette::GraphicalReportHandler::new()
+                .render_report(&mut buf, &e)
+                .unwrap();
+            println!("{}", buf);
+            buf.truncate(0);
+            miette::JSONReportHandler::new()
+                .render_report(&mut buf, &e)
+                .unwrap();
+            buf
+        })
     }
 
     #[test]
@@ -1248,7 +1245,8 @@ mod test {
     fn exclude_keywords() {
         parse(nodes(), "item #true").unwrap();
 
-        // Keywords like #true cannot be used as node names
+        // would be nice for this to error with "unexpected keyword #true", but
+        // right now its reading it as an improperly formatted raw string.
         err_eq!(
             parse(nodes(), "#true \"item\""),
             r#"{
