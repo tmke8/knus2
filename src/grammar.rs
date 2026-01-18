@@ -135,7 +135,7 @@ fn comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> +
 }
 
 fn ml_comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
-    recursive::<_, _, _, _, _>(|comment| {
+    recursive::<_, _, extra::Err<ParseError>, _, _>(|comment| {
         choice((
             comment,
             none_of('*').ignored(),
@@ -335,8 +335,8 @@ fn bare_ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
             .then(id_sans_dig().then(id_char().repeated()).or_not())
             .to_slice(),
     ))
-    .map(|v: &str| v.to_owned())
-    .try_map(|s: String, span| match &s[..] {
+    .map(|v: &str| Box::<str>::from(v))
+    .try_map(|s, span| match &s[..] {
         "true" | "false" | "null" | "nan" | "inf" | "-inf" => Err(ParseError::Message {
             label: Some("illegal identifier"),
             span: span.into(),
@@ -378,7 +378,7 @@ fn bare_ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
             found: TokenFormat::Token("#-inf"),
             expected: expected_kind("identifier"),
         }),
-        _ => Ok(s.into()),
+        _ => Ok(s),
     })
 }
 
