@@ -129,7 +129,7 @@ pub trait DecodeSpan: Sized {
 
 impl DecodeSpan for Span {
     fn decode_span(span: &Span, _: &mut Context) -> Self {
-        span.clone()
+        *span
     }
 }
 

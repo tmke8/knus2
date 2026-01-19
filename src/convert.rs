@@ -125,7 +125,7 @@ impl DecodeScalar for String {
     fn type_check(type_name: &Option<Spanned<TypeName>>, ctx: &mut Context) {
         if let Some(typ) = type_name {
             ctx.emit_error(DecodeError::TypeName {
-                span: typ.span().clone(),
+                span: *typ.span(),
                 found: Some(typ.value.clone()),
                 expected: ExpectedType::no_type(),
                 rust_type: "String",
@@ -147,7 +147,7 @@ impl DecodeScalar for PathBuf {
     fn type_check(type_name: &Option<Spanned<TypeName>>, ctx: &mut Context) {
         if let Some(typ) = type_name {
             ctx.emit_error(DecodeError::TypeName {
-                span: typ.span().clone(),
+                span: *typ.span(),
                 found: Some(typ.value.clone()),
                 expected: ExpectedType::no_type(),
                 rust_type: "PathBuf",
@@ -169,7 +169,7 @@ impl DecodeScalar for Arc<Path> {
     fn type_check(type_name: &Option<Spanned<TypeName>>, ctx: &mut Context) {
         if let Some(typ) = type_name {
             ctx.emit_error(DecodeError::TypeName {
-                span: typ.span().clone(),
+                span: *typ.span(),
                 found: Some(typ.value.clone()),
                 expected: ExpectedType::no_type(),
                 rust_type: "Arc<Path>",
@@ -191,7 +191,7 @@ impl DecodeScalar for Arc<str> {
     fn type_check(type_name: &Option<Spanned<TypeName>>, ctx: &mut Context) {
         if let Some(typ) = type_name {
             ctx.emit_error(DecodeError::TypeName {
-                span: typ.span().clone(),
+                span: *typ.span(),
                 found: Some(typ.value.clone()),
                 expected: ExpectedType::no_type(),
                 rust_type: "Arc<str>",
@@ -213,7 +213,7 @@ impl DecodeScalar for bool {
     fn type_check(type_name: &Option<Spanned<TypeName>>, ctx: &mut Context) {
         if let Some(typ) = type_name {
             ctx.emit_error(DecodeError::TypeName {
-                span: typ.span().clone(),
+                span: *typ.span(),
                 found: Some(typ.value.clone()),
                 expected: ExpectedType::no_type(),
                 rust_type: "bool",

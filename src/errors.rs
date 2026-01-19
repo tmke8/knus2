@@ -467,14 +467,14 @@ impl DecodeError {
         E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
     {
         DecodeError::Conversion {
-            span: span.span().clone(),
+            span: *span.span(),
             source: err.into(),
         }
     }
     /// Construct [`DecodeError::ScalarKind`] error
     pub fn scalar_kind(expected: Kind, found: &Spanned<Literal>) -> Self {
         DecodeError::ScalarKind {
-            span: found.span().clone(),
+            span: *found.span(),
             expected: expected.into(),
             found: (&found.value).into(),
         }
@@ -482,7 +482,7 @@ impl DecodeError {
     /// Construct [`DecodeError::Missing`] error
     pub fn missing(node: &SpannedNode, message: impl Into<String>) -> Self {
         DecodeError::Missing {
-            span: node.node_name.span().clone(),
+            span: *node.node_name.span(),
             message: message.into(),
         }
     }
@@ -493,7 +493,7 @@ impl DecodeError {
         message: impl Into<String>,
     ) -> Self {
         DecodeError::Unexpected {
-            span: elem.span().clone(),
+            span: *elem.span(),
             kind,
             message: message.into(),
         }
@@ -504,7 +504,7 @@ impl DecodeError {
         M: Into<Cow<'static, str>>,
     {
         DecodeError::Unsupported {
-            span: span.span().clone(),
+            span: *span.span(),
             message: message.into(),
         }
     }

@@ -84,7 +84,7 @@ pub fn bytes(value: &Value, ctx: &mut Context) -> Vec<u8> {
             }
             _ => {
                 ctx.emit_error(DecodeError::TypeName {
-                    span: typ.span().clone(),
+                    span: *typ.span(),
                     found: Some(typ.value.clone()),
                     expected: ExpectedType::optional(BuiltinType::Base64),
                     rust_type: "bytes",
