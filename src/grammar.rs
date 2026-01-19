@@ -7,15 +7,16 @@ use crate::ast::{Document, SpannedName, SpannedNode};
 use crate::errors::{ParseError, TokenFormat};
 use crate::span::{Span, Spanned};
 
-fn begin_comment<'src>(
-    which: char,
-) -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
+type Error = extra::Err<ParseError>;
+type Input<'src> = &'src str;
+
+fn begin_comment<'src>(which: char) -> impl Parser<'src, Input<'src>, (), Error> + Clone {
     just('/')
         .map_err(|e: ParseError| e.with_no_expected())
         .ignore_then(just(which).ignored())
 }
 
-fn newline<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
+fn newline<'src>() -> impl Parser<'src, Input<'src>, (), Error> + Clone {
     just('\r')
         .or_not()
         .ignore_then(just('\n'))
@@ -29,8 +30,8 @@ fn newline<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> +
         .map_err(|e: ParseError| e.with_expected_kind("newline"))
 }
 
-fn ws_char<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
-    any::<_, extra::Err<ParseError>>()
+fn ws_char<'src>() -> impl Parser<'src, Input<'src>, (), Error> + Clone {
+    any::<_, Error>()
         .filter(|c| {
             matches!(
                 c,
@@ -41,8 +42,8 @@ fn ws_char<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> +
         .ignored()
 }
 
-fn id_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
-    any::<_, extra::Err<ParseError>>()
+fn id_char<'src>() -> impl Parser<'src, Input<'src>, char, Error> + Clone {
+    any::<_, Error>()
         .filter(|c| {
             !matches!(c,
                 '\u{0000}'..='\u{0021}' |
@@ -58,8 +59,8 @@ fn id_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>>
         .map_err(|e| e.with_expected_kind("letter"))
 }
 
-fn id_sans_dig<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
-    any::<_, extra::Err<ParseError>>()
+fn id_sans_dig<'src>() -> impl Parser<'src, Input<'src>, char, Error> + Clone {
+    any::<_, Error>()
         .filter(|c| {
             !matches!(c,
                 '0'..='9' |
@@ -76,8 +77,8 @@ fn id_sans_dig<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseErr
         .map_err(|e| e.with_expected_kind("letter"))
 }
 
-fn id_sans_dig_point<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
-    any::<_, extra::Err<ParseError>>()
+fn id_sans_dig_point<'src>() -> impl Parser<'src, Input<'src>, char, Error> + Clone {
+    any::<_, Error>()
         .filter(|c| {
             !matches!(c,
                 '0'..='9' | '.' |
@@ -94,9 +95,8 @@ fn id_sans_dig_point<'src>() -> impl Parser<'src, &'src str, char, extra::Err<Pa
         .map_err(|e| e.with_expected_kind("letter"))
 }
 
-fn id_sans_sign_dig_point<'src>()
--> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
-    any::<_, extra::Err<ParseError>>()
+fn id_sans_sign_dig_point<'src>() -> impl Parser<'src, Input<'src>, char, Error> + Clone {
+    any::<_, Error>()
         .filter(|c| {
             !matches!(c,
                 '-'| '+' | '0'..='9' |
@@ -113,7 +113,7 @@ fn id_sans_sign_dig_point<'src>()
         .map_err(|e| e.with_expected_kind("letter"))
 }
 
-fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
+fn ws<'src>() -> impl Parser<'src, Input<'src>, (), Error> + Clone {
     ws_char()
         .repeated()
         .at_least(1)
@@ -122,7 +122,7 @@ fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clon
         .map_err(|e| e.with_expected_kind("whitespace"))
 }
 
-fn comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
+fn comment<'src>() -> impl Parser<'src, Input<'src>, (), Error> + Clone {
     begin_comment('/')
         .then(
             any()
@@ -134,8 +134,8 @@ fn comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> +
         .ignored()
 }
 
-fn ml_comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
-    recursive::<_, _, extra::Err<ParseError>, _, _>(|comment| {
+fn ml_comment<'src>() -> impl Parser<'src, Input<'src>, (), Error> + Clone {
+    recursive::<_, _, Error, _, _>(|comment| {
         choice((
             comment,
             none_of('*').ignored(),
@@ -170,7 +170,7 @@ fn ml_comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>
     })
 }
 
-fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
+fn raw_string<'src>() -> impl Parser<'src, Input<'src>, Box<str>, Error> + Clone {
     let matching_hashes = just('#')
         .repeated()
         .configure(|cfg, hash_num| cfg.exactly(*hash_num));
@@ -210,7 +210,7 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
         .map(|text| text.0.into())
 }
 
-fn string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
+fn string<'src>() -> impl Parser<'src, Input<'src>, Box<str>, Error> + Clone {
     // If we don't use this boxed approach with exactly this order,
     // then secondary errors from `escaped_string` are swallowed during backtracking.
     choice([raw_string().boxed(), escaped_string().boxed()])
@@ -220,8 +220,8 @@ fn expected_kind(s: &'static str) -> BTreeSet<TokenFormat> {
     [TokenFormat::Kind(s)].into_iter().collect()
 }
 
-fn esc_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
-    any::<_, extra::Err<ParseError>>()
+fn esc_char<'src>() -> impl Parser<'src, Input<'src>, char, Error> + Clone {
+    any::<_, Error>()
         .try_map(|c, span| match c {
             '"' | '\\' => Ok(c),
             'b' => Ok('\u{0008}'),
@@ -238,7 +238,7 @@ fn esc_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>
             }),
         })
         .or(just('u').ignore_then(
-            any::<_, extra::Err<ParseError>>()
+            any::<_, Error>()
                 .try_map(|c, span| {
                     c.is_ascii_hexdigit()
                         .then_some(c)
@@ -270,8 +270,7 @@ fn esc_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>
         ))
 }
 
-fn escaped_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone
-{
+fn escaped_string<'src>() -> impl Parser<'src, Input<'src>, Box<str>, Error> + Clone {
     just('"').ignore_then(
         choice((
             none_of(['"', '\\']),
@@ -308,7 +307,7 @@ fn escaped_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<P
     )
 }
 
-fn bare_ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
+fn bare_ident<'src>() -> impl Parser<'src, Input<'src>, Box<str>, Error> + Clone {
     let sign = just('+').or(just('-'));
     choice((
         // unambiguous-ident
@@ -371,7 +370,7 @@ fn bare_ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
     })
 }
 
-fn ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError>> + Clone {
+fn ident<'src>() -> impl Parser<'src, Input<'src>, Box<str>, Error> + Clone {
     choice((
         // match -123 so `-` will not be treated as an ident by backtracking
         number().map(Err),
@@ -393,7 +392,7 @@ fn ident<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<ParseError
     })
 }
 
-fn keyword<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
+fn keyword<'src>() -> impl Parser<'src, Input<'src>, Literal, Error> + Clone {
     choice((
         just("#null")
             .map_err(|e: ParseError| e.with_expected_token("#null"))
@@ -416,17 +415,17 @@ fn keyword<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseErro
     ))
 }
 
-fn digit<'src>(radix: u32) -> impl Parser<'src, &'src str, char, extra::Err<ParseError>> + Clone {
-    any::<_, extra::Err<ParseError>>().filter(move |c: &char| c.is_digit(radix))
+fn digit<'src>(radix: u32) -> impl Parser<'src, Input<'src>, char, Error> + Clone {
+    any::<_, Error>().filter(move |c: &char| c.is_digit(radix))
 }
 
-fn digits<'src>(radix: u32) -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
-    any::<_, extra::Err<ParseError>>()
+fn digits<'src>(radix: u32) -> impl Parser<'src, Input<'src>, (), Error> + Clone {
+    any::<_, Error>()
         .filter(move |c: &char| c == &'_' || c.is_digit(radix))
         .repeated()
 }
 
-fn decimal_number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
+fn decimal_number<'src>() -> impl Parser<'src, Input<'src>, Literal, Error> + Clone {
     just('-')
         .or(just('+'))
         .or_not()
@@ -452,7 +451,7 @@ fn decimal_number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<Pa
         })
 }
 
-fn radix_number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
+fn radix_number<'src>() -> impl Parser<'src, Input<'src>, Literal, Error> + Clone {
     just('-')
         .or(just('+'))
         .or_not()
@@ -478,11 +477,11 @@ fn radix_number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<Pars
         })
 }
 
-fn number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
+fn number<'src>() -> impl Parser<'src, Input<'src>, Literal, Error> + Clone {
     radix_number().or(decimal_number())
 }
 
-fn literal<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError>> + Clone {
+fn literal<'src>() -> impl Parser<'src, Input<'src>, Literal, Error> + Clone {
     // Check for `ident` last, because `ident` first checks for numbers,
     // and it can confuse keywords with raw strings.
     choice([
@@ -492,7 +491,7 @@ fn literal<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseErro
     ])
 }
 
-fn type_name<'src>() -> impl Parser<'src, &'src str, TypeName, extra::Err<ParseError>> + Clone {
+fn type_name<'src>() -> impl Parser<'src, Input<'src>, TypeName, Error> + Clone {
     ident()
         .delimited_by(
             just('(').then(ws_char().repeated()),
@@ -501,11 +500,9 @@ fn type_name<'src>() -> impl Parser<'src, &'src str, TypeName, extra::Err<ParseE
         .map(TypeName::from_string)
 }
 
-fn spanned<'src, T, P>(
-    p: P,
-) -> impl Parser<'src, &'src str, Spanned<T>, extra::Err<ParseError>> + Clone
+fn spanned<'src, T, P>(p: P) -> impl Parser<'src, Input<'src>, Spanned<T>, Error> + Clone
 where
-    P: Parser<'src, &'src str, T, extra::Err<ParseError>> + Clone,
+    P: Parser<'src, Input<'src>, T, Error> + Clone,
 {
     p.map_with(|value, e| Spanned {
         span: e.span().into(),
@@ -513,17 +510,17 @@ where
     })
 }
 
-fn esc_line<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
+fn esc_line<'src>() -> impl Parser<'src, Input<'src>, (), Error> + Clone {
     just('\\')
         .ignore_then(ws().repeated())
         .ignore_then(comment().or(newline()).or(end()))
 }
 
-fn node_space<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
+fn node_space<'src>() -> impl Parser<'src, Input<'src>, (), Error> + Clone {
     ws().or(esc_line())
 }
 
-fn node_terminator<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
+fn node_terminator<'src>() -> impl Parser<'src, Input<'src>, (), Error> + Clone {
     choice((newline(), comment(), just(';').ignored(), end()))
 }
 
@@ -534,7 +531,7 @@ enum PropOrArg {
     Ignore,
 }
 
-fn type_name_value<'src>() -> impl Parser<'src, &'src str, Value, extra::Err<ParseError>> + Clone {
+fn type_name_value<'src>() -> impl Parser<'src, Input<'src>, Value, Error> + Clone {
     spanned(type_name().then_ignore(ws_char().repeated()))
         .then(spanned(literal()))
         .map(|(type_name, literal)| Value {
@@ -543,15 +540,14 @@ fn type_name_value<'src>() -> impl Parser<'src, &'src str, Value, extra::Err<Par
         })
 }
 
-fn value<'src>() -> impl Parser<'src, &'src str, Value, extra::Err<ParseError>> + Clone {
+fn value<'src>() -> impl Parser<'src, Input<'src>, Value, Error> + Clone {
     type_name_value().or(spanned(literal()).map(|literal| Value {
         type_name: None,
         literal,
     }))
 }
 
-fn prop_or_arg_inner<'src>()
--> impl Parser<'src, &'src str, PropOrArg, extra::Err<ParseError>> + Clone {
+fn prop_or_arg_inner<'src>() -> impl Parser<'src, Input<'src>, PropOrArg, Error> + Clone {
     use PropOrArg::*;
 
     let equals_value = ws_char()
@@ -642,7 +638,7 @@ fn prop_or_arg_inner<'src>()
     ))
 }
 
-fn prop_or_arg<'src>() -> impl Parser<'src, &'src str, PropOrArg, extra::Err<ParseError>> + Clone {
+fn prop_or_arg<'src>() -> impl Parser<'src, Input<'src>, PropOrArg, Error> + Clone {
     begin_comment('-')
         .ignore_then(line_space().repeated())
         .ignore_then(prop_or_arg_inner())
@@ -650,11 +646,11 @@ fn prop_or_arg<'src>() -> impl Parser<'src, &'src str, PropOrArg, extra::Err<Par
         .or(prop_or_arg_inner())
 }
 
-fn line_space<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError>> + Clone {
+fn line_space<'src>() -> impl Parser<'src, Input<'src>, (), Error> + Clone {
     newline().or(ws()).or(comment())
 }
 
-fn nodes<'src>() -> impl Parser<'src, &'src str, Vec<SpannedNode>, extra::Err<ParseError>> + Clone {
+fn nodes<'src>() -> impl Parser<'src, Input<'src>, Vec<SpannedNode>, Error> + Clone {
     use PropOrArg::*;
     recursive(|nodes| {
         let braced_nodes = just('{').ignore_then(nodes.then_ignore(just('}')).map_err_with_state(
@@ -750,20 +746,20 @@ fn nodes<'src>() -> impl Parser<'src, &'src str, Vec<SpannedNode>, extra::Err<Pa
     })
 }
 
-pub(crate) fn document<'src>() -> impl Parser<'src, &'src str, Document, extra::Err<ParseError>> {
+pub(crate) fn document<'src>() -> impl Parser<'src, Input<'src>, Document, Error> {
     just('\u{FEFF}')
         .or_not()
         .ignore_then(nodes())
-        // .then_ignore(end())
         .map(|nodes| Document { nodes })
 }
 
 #[cfg(test)]
 mod test {
+    use super::{Error, Input};
     use super::{comment, ident, literal, ml_comment, string, type_name, ws};
     use super::{nodes, number};
     use crate::ast::{Decimal, Integer, Literal, Radix, TypeName};
-    use crate::errors::{Error, ParseError};
+    use crate::errors::Error as MietteError;
     use chumsky::prelude::*;
     use miette::NamedSource;
 
@@ -781,11 +777,11 @@ mod test {
 
     fn parse<'src, P, T>(p: P, text: &'src str) -> Result<T, String>
     where
-        P: Parser<'src, &'src str, T, extra::Err<ParseError>>,
+        P: Parser<'src, Input<'src>, T, Error>,
     {
         p.parse(text).into_result().map_err(|errors| {
             let source = text.to_string() + " ";
-            let e = Error {
+            let e = MietteError {
                 source_code: NamedSource::new("<test>", source),
                 errors: errors.into_iter().map(Into::into).collect(),
             };
