@@ -191,8 +191,8 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
                 //     // *e.state() = hash_num;
                 //     x.0
                 // })
-                .map_err_with_state(move |e: ParseError, span: SimpleSpan, _state| {
-                    let hash_num = 1;
+                .map_err_with(move |e: ParseError, extras| {
+                    let hash_num = *extras.ctx();
                     if matches!(
                         &e,
                         ParseError::Unexpected {
@@ -202,9 +202,9 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
                     ) {
                         e.merge(ParseError::Unclosed {
                             label: "raw string",
-                            opened_at: Span::from(span).before_start(hash_num + 2),
+                            opened_at: Span::from(extras.span()).before_start(hash_num + 2),
                             opened: TokenFormat::OpenRaw(hash_num),
-                            expected_at: Span::from(span).at_end(),
+                            expected_at: Span::from(extras.span()).at_end(),
                             expected: TokenFormat::CloseRaw(hash_num),
                             found: None.into(),
                         })
@@ -1171,13 +1171,13 @@ mod test {
             "severity": "error",
             "labels": [],
             "related": [{
-                "message": "unclosed raw string `#\"`",
+                "message": "unclosed raw string `###\"`",
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
                     {"label": "opened here",
-                    "span": {"offset": 1, "length": 3}},
-                    {"label": "expected `\"#`",
+                    "span": {"offset": 0, "length": 4}},
+                    {"label": "expected `\"###`",
                     "span": {"offset": 9, "length": 0}}
                 ],
                 "related": []
@@ -1191,13 +1191,13 @@ mod test {
             "severity": "error",
             "labels": [],
             "related": [{
-                "message": "unclosed raw string `#\"`",
+                "message": "unclosed raw string `###\"`",
                 "severity": "error",
                 "filename": "<test>",
                 "labels": [
                     {"label": "opened here",
-                    "span": {"offset": 1, "length": 3}},
-                    {"label": "expected `\"#`",
+                    "span": {"offset": 0, "length": 4}},
+                    {"label": "expected `\"###`",
                     "span": {"offset": 16, "length": 0}}
                 ],
                 "related": []
