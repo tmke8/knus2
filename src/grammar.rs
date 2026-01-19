@@ -180,17 +180,11 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
         .count()
         .then_ignore(just('"'))
         .ignore_with_ctx(
-            // any::<_, extra::Full<ParseError, SimpleState<usize>, _>>()
             any()
                 .and_is(just('"').then(matching_hashes).not())
                 .repeated()
                 .to_slice()
                 .then(just('"').ignore_then(matching_hashes.ignored()))
-                // .map_with(|x, e| {
-                //     let hash_num = *e.ctx();
-                //     // *e.state() = hash_num;
-                //     x.0
-                // })
                 .map_err_with(move |e: ParseError, extras| {
                     let hash_num = *extras.ctx();
                     if matches!(
@@ -212,7 +206,6 @@ fn raw_string<'src>() -> impl Parser<'src, &'src str, Box<str>, extra::Err<Parse
                         e
                     }
                 }),
-            // .with_state::<()>(()),
         )
         .map(|text| text.0.into())
 }
@@ -262,21 +255,17 @@ fn esc_char<'src>() -> impl Parser<'src, &'src str, char, extra::Err<ParseError>
                 .to_slice()
                 .delimited_by(just('{'), just('}'))
                 .validate(|hex_chars, extras, emit| {
-                    let c = u32::from_str_radix(hex_chars, 16)
+                    u32::from_str_radix(hex_chars, 16)
                         .map_err(|e| e.to_string())
                         .and_then(|n| char::try_from(n).map_err(|e| e.to_string()))
-                        .map_err(|e| ParseError::Message {
-                            label: Some("invalid character code"),
-                            span: extras.span().into(),
-                            message: e.to_string(),
-                        });
-                    match c {
-                        Err(err) => {
-                            emit.emit(err);
+                        .unwrap_or_else(|e| {
+                            emit.emit(ParseError::Message {
+                                label: Some("invalid character code"),
+                                span: extras.span().into(),
+                                message: e.to_string(),
+                            });
                             '\0'
-                        }
-                        Ok(c) => c,
-                    }
+                        })
                 }),
         ))
 }
@@ -564,25 +553,27 @@ fn value<'src>() -> impl Parser<'src, &'src str, Value, extra::Err<ParseError>> 
 fn prop_or_arg_inner<'src>()
 -> impl Parser<'src, &'src str, PropOrArg, extra::Err<ParseError>> + Clone {
     use PropOrArg::*;
+
+    let equals_value = ws_char()
+        .repeated()
+        .then(just('='))
+        .then(ws_char().repeated())
+        .ignore_then(value());
+
     choice((
         spanned(literal())
-            .then(
-                ws_char()
-                    .repeated()
-                    .then(just('='))
-                    .then(ws_char().repeated())
-                    .ignore_then(value())
-                    .or_not(),
-            )
+            .then(equals_value.clone().or_not())
             .validate(|(name, value), _, emit| {
-                let name_span = name.span;
-                match (name.value, value) {
-                    (Literal::String(s), Some(value)) => {
-                        let name = Spanned {
-                            span: name_span,
-                            value: s,
-                        };
-                        Prop(name, value)
+                let span = name.span;
+                match (&name.value, &value) {
+                    (Literal::String(s), Some(_)) => {
+                        return Prop(
+                            Spanned {
+                                span,
+                                value: s.clone(),
+                            },
+                            value.unwrap(),
+                        );
                     }
                     (
                         Literal::Bool(_)
@@ -590,11 +581,11 @@ fn prop_or_arg_inner<'src>()
                         | Literal::Nan
                         | Literal::Inf
                         | Literal::NegInf,
-                        Some(value),
+                        Some(_),
                     ) => {
                         emit.emit(ParseError::Unexpected {
                             label: Some("unexpected keyword"),
-                            span: name_span,
+                            span,
                             found: TokenFormat::Kind("keyword"),
                             expected: [
                                 TokenFormat::Kind("identifier"),
@@ -603,60 +594,44 @@ fn prop_or_arg_inner<'src>()
                             .into_iter()
                             .collect(),
                         });
-                        let name = Spanned {
-                            span: name_span,
-                            value: "".into(),
-                        };
-                        Prop(name, value)
                     }
-                    (Literal::Int(_) | Literal::Decimal(_), Some(value)) => {
+                    (Literal::Int(_) | Literal::Decimal(_), Some(_)) => {
                         emit.emit(ParseError::MessageWithHelp {
                             label: Some("unexpected number"),
-                            span: name_span,
+                            span,
                             message: "numbers cannot be used as property names".into(),
                             help: "consider enclosing in double quotes \"..\"",
                         });
-                        let name = Spanned {
-                            span: name_span,
-                            value: "".into(),
-                        };
-                        Prop(name, value)
                     }
-                    (value, None) => Arg(Value {
-                        type_name: None,
-                        literal: Spanned {
-                            span: name_span,
-                            value,
-                        },
-                    }),
+                    (_, None) => {
+                        return Arg(Value {
+                            type_name: None,
+                            literal: name,
+                        });
+                    }
                 }
+                // Error recovery for invalid property names
+                Prop(
+                    Spanned {
+                        span,
+                        value: "".into(),
+                    },
+                    value.unwrap(),
+                )
             }),
         spanned(bare_ident())
-            .then(
-                ws_char()
-                    .repeated()
-                    .then(just('='))
-                    .then(ws_char().repeated())
-                    .ignore_then(value())
-                    .or_not(),
-            )
+            .then(equals_value.or_not())
             .validate(|(name, value), e, emit| {
-                if value.is_none() {
+                if let Some(value) = value {
+                    Prop(name, value)
+                } else {
                     emit.emit(ParseError::MessageWithHelp {
                         label: Some("unexpected identifier"),
                         span: e.span().into(),
                         message: "identifiers cannot be used as arguments".into(),
                         help: "consider enclosing in double quotes \"..\"",
                     });
-                }
-                (name, value)
-            })
-            .map(|(name, value)| {
-                if let Some(value) = value {
-                    Prop(name, value)
-                } else {
-                    // this is invalid, but we already emitted error
-                    // in validate() above, so doing a sane fallback
+                    // this is invalid, but it's just a fallback
                     Arg(Value {
                         type_name: None,
                         literal: name.map(Literal::String),
