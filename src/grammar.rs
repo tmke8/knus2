@@ -550,47 +550,46 @@ fn multiline_raw_string<'src>() -> impl Parser<'src, Input<'src>, Box<str>, Erro
                     } else {
                         e
                     }
+                })
+                .validate(|(content, _): (&str, ()), extras, emit| {
+                    let span = Span::from(extras.span());
+                    // Note: span covers content + closing """# (the # count matches opening)
+                    // Content is at span.start to span.end - 3 - hash_count
+                    let hash_num = *extras.ctx();
+
+                    match dedent_multiline_string(content) {
+                        Ok(dedented) => dedented.into(),
+                        Err(e) => {
+                            let (label, error_span, message) = match e {
+                                MultilineStringError::NoOpeningNewline => (
+                                    "must be followed by newline",
+                                    span.before_start(hash_num + 3),
+                                    "opening delimiter must be immediately followed by a newline",
+                                ),
+                                MultilineStringError::ClosingNotOnOwnLine => (
+                                    "must be on its own line",
+                                    // Point to closing """ (at content_len offset, length 3)
+                                    Span(span.1 - 3 - hash_num, span.1),
+                                    "closing delimiter must be on its own line with only whitespace prefix",
+                                ),
+                                MultilineStringError::InsufficientIndent { offset, length } => (
+                                    "insufficient indentation",
+                                    // Offset is within content, which starts at span.0
+                                    Span(span.0 + offset, span.0 + offset + length),
+                                    "line must start with the same whitespace as the closing delimiter",
+                                ),
+                            };
+                            emit.emit(ParseError::Message {
+                                label: Some(label),
+                                span: error_span,
+                                message: message.to_string(),
+                            });
+                            // Return empty string as error recovery
+                            "".into()
+                        }
+                    }
                 }),
         )
-        .validate(|(content, _), extras, emit| {
-            let span: Span = extras.span().into();
-            // Note: span covers content + closing """# (the # count matches opening)
-            // Content is at span.start to span.end - 3 - hash_count, but we don't have hash_count here
-            // We'll use content.len() to find where content ends
-            let content_len = content.len();
-
-            match dedent_multiline_string(content) {
-                Ok(dedented) => dedented.into(),
-                Err(e) => {
-                    let (label, error_span, message) = match e {
-                        MultilineStringError::NoOpeningNewline => (
-                            "must be followed by newline",
-                            span.before_start(3), // Point to opening """ (not including hashes)
-                            "opening delimiter must be immediately followed by a newline",
-                        ),
-                        MultilineStringError::ClosingNotOnOwnLine => (
-                            "must be on its own line",
-                            // Point to closing """ (at content_len offset, length 3)
-                            Span(span.0 + content_len, span.0 + content_len + 3),
-                            "closing delimiter must be on its own line with only whitespace prefix",
-                        ),
-                        MultilineStringError::InsufficientIndent { offset, length } => (
-                            "insufficient indentation",
-                            // Offset is within content, which starts at span.0
-                            Span(span.0 + offset, span.0 + offset + length),
-                            "line must start with the same whitespace as the closing delimiter",
-                        ),
-                    };
-                    emit.emit(ParseError::Message {
-                        label: Some(label),
-                        span: error_span,
-                        message: message.to_string(),
-                    });
-                    // Return empty string as error recovery
-                    "".into()
-                }
-            }
-        })
 }
 
 fn esc_char<'src>() -> impl Parser<'src, Input<'src>, char, Error> + Clone {
@@ -1667,6 +1666,30 @@ mod test {
     }
 
     #[test]
+    fn parse_multiline_raw_str_err_no_opening_newline() {
+        // Missing newline after opening delimiter: ##"""hello"""##
+        // Points to opening ##""" (offset 0, length 5)
+        err_eq!(
+            parse(string(), "##\"\"\"hello\"\"\"##"),
+            r#"{
+            "message": "error parsing KDL",
+            "severity": "error",
+            "labels": [],
+            "related": [{
+                "message": "opening delimiter must be immediately followed by a newline",
+                "severity": "error",
+                "filename": "<test>",
+                "labels": [
+                    {"label": "must be followed by newline",
+                    "span": {"offset": 0, "length": 5}}
+                ],
+                "related": []
+            }]
+        }"#
+        );
+    }
+
+    #[test]
     fn parse_multiline_str_err_closing_not_on_own_line() {
         // Closing delimiter not on its own line: """\nhello"""
         // Points to closing """ (offset 9, length 3)
@@ -1691,12 +1714,39 @@ mod test {
     }
 
     #[test]
+    fn parse_multiline_raw_str_err_closing_not_on_own_line() {
+        // Closing delimiter not on its own line: ##"""\nhello"""##
+        // Points to closing """## (offset 11, length 5)
+        err_eq!(
+            parse(string(), "##\"\"\"\nhello\"\"\"##"),
+            r#"{
+            "message": "error parsing KDL",
+            "severity": "error",
+            "labels": [],
+            "related": [{
+                "message": "closing delimiter must be on its own line with only whitespace prefix",
+                "severity": "error",
+                "filename": "<test>",
+                "labels": [
+                    {"label": "must be on its own line",
+                    "span": {"offset": 11, "length": 5}}
+                ],
+                "related": []
+            }]
+        }"#
+        );
+    }
+
+    #[test]
     fn parse_multiline_str_err_insufficient_indent() {
         // Insufficient indentation with non-ASCII whitespace: """\n    hello\n\u{00a0}\u{00a0}world\n    """
         // Uses two non-breaking spaces (\u{00a0}, 2 bytes each in UTF-8) as the bad indentation
         // Points to the whitespace prefix (offset 14, length 4 bytes)
         err_eq!(
-            parse(string(), "\"\"\"\n    hello\n\u{00a0}\u{00a0}world\n    \"\"\""),
+            parse(
+                string(),
+                "\"\"\"\n    hello\n\u{00a0}\u{00a0}world\n    \"\"\""
+            ),
             r#"{
             "message": "error parsing KDL",
             "severity": "error",
