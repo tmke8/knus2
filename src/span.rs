@@ -76,6 +76,16 @@ impl Span {
         self.1.saturating_sub(self.0)
     }
 
+    /// Return span starting at this span's end with given length
+    pub fn with_len(&self, len: usize) -> Self {
+        Span(self.0, self.0 + len)
+    }
+
+    /// Return a subspan within this span (offset from start, length)
+    pub fn subspan(&self, offset: usize, len: usize) -> Self {
+        Span(self.0 + offset, self.0 + offset + len)
+    }
+
     #[cfg(feature = "line-numbers")]
     /// Converts the span's byte offsets to zero-based line/column pairs
     pub fn to_line_column(&self, text: &str) -> ((usize, usize), (usize, usize)) {
