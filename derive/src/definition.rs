@@ -32,10 +32,15 @@ pub enum ArgKind {
 #[derive(Debug, Clone)]
 pub enum FieldMode {
     Argument,
-    Property { name: Option<String> },
+    Property {
+        name: Option<String>,
+    },
     Arguments,
     Properties,
-    Children { name: Option<String> },
+    Children {
+        name: Option<String>,
+        exactly_one: bool,
+    },
     Child,
     Flatten(Flatten),
     Span,
@@ -155,6 +160,7 @@ pub struct Child {
 pub struct VarChildren {
     pub field: Field,
     pub unwrap: Option<Box<FieldAttrs>>,
+    pub exactly_one: bool,
 }
 
 pub enum ExtraKind {
@@ -474,7 +480,10 @@ impl StructBuilder {
                     default: attrs.default.clone(),
                 });
             }
-            Some(FieldMode::Children { name: Some(name) }) => {
+            Some(FieldMode::Children {
+                name: Some(name),
+                exactly_one: _,
+            }) => {
                 attrs.no_decode("children");
                 if let Some(prev) = &self.var_children {
                     return Err(err_pair(
@@ -493,7 +502,10 @@ impl StructBuilder {
                     default: attrs.default.clone(),
                 });
             }
-            Some(FieldMode::Children { name: None }) => {
+            Some(FieldMode::Children {
+                name: None,
+                exactly_one,
+            }) => {
                 attrs.no_decode("children");
                 if let Some(prev) = &self.var_children {
                     return Err(err_pair(
@@ -506,6 +518,7 @@ impl StructBuilder {
                 self.var_children = Some(VarChildren {
                     field,
                     unwrap: attrs.unwrap.clone(),
+                    exactly_one: *exactly_one,
                 });
             }
             Some(FieldMode::Flatten(flatten)) => {
@@ -801,6 +814,7 @@ impl Attr {
         } else if lookahead.peek(kw::children) {
             let _kw: kw::children = input.parse()?;
             let mut name = None;
+            let mut exactly_one = false;
             if !input.is_empty() && !input.lookahead1().peek(syn::Token![,]) {
                 let parens;
                 syn::parenthesized!(parens in input);
@@ -810,11 +824,14 @@ impl Attr {
                     let _eq: syn::Token![=] = parens.parse()?;
                     let name_lit: syn::LitStr = parens.parse()?;
                     name = Some(name_lit.value());
+                } else if lookahead.peek(kw::exactly_one) {
+                    let _kw: kw::exactly_one = parens.parse()?;
+                    exactly_one = true;
                 } else {
                     return Err(lookahead.error());
                 }
             }
-            Ok(Attr::FieldMode(FieldMode::Children { name }))
+            Ok(Attr::FieldMode(FieldMode::Children { name, exactly_one }))
         } else if lookahead.peek(kw::child) {
             let _kw: kw::child = input.parse()?;
             Ok(Attr::FieldMode(FieldMode::Child))
